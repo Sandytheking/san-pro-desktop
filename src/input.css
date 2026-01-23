@@ -1,0 +1,5 @@
+@import "tailwindcss";
+
+/* 👇 MUY IMPORTANTE */
+@source "../index.html";
+@source "../**/*.html";
