@@ -1,0 +1,479 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>SAN PRO PWA</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="stylesheet" href="./assets/styles.css" />
+  <script src="./config.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js"></script>
+</head>
+<body>
+  <div id="toast" class="toast hidden"></div>
+
+  <section id="setup-screen" class="screen auth-screen hidden">
+    <div class="auth-card">
+      <h1>SAN PRO</h1>
+      <p>Conecta tu proyecto de Supabase para iniciar la version PWA.</p>
+      <label>Supabase URL</label>
+      <input id="setup-url" placeholder="https://xxxxx.supabase.co" />
+      <label>Anon Key</label>
+      <textarea id="setup-key" rows="4" placeholder="eyJhbGciOi..."></textarea>
+      <button id="save-config">Guardar configuracion</button>
+      <small>Tambien puedes copiar `config.example.js` como `config.js` y colocar tus datos ahi.</small>
+    </div>
+  </section>
+
+  <section id="terms-screen" class="screen auth-screen hidden">
+    <div class="auth-card wide">
+      <h1>Terminos y Condiciones</h1>
+      <p>Al continuar, aceptas usar SAN PRO bajo tu responsabilidad y mantener respaldos periodicos de la informacion.</p>
+      <p>El sistema se entrega como herramienta de apoyo. Los errores de registro, cobro o respaldo deben ser revisados por el usuario.</p>
+      <div class="actions">
+        <button class="ghost" id="reject-terms">Rechazar</button>
+        <button id="accept-terms">Aceptar y continuar</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="pin-screen" class="screen auth-screen hidden">
+    <div class="auth-card">
+      <h1>SAN PRO</h1>
+      <p id="pin-title">Ingrese PIN</p>
+      <input id="pin-input" type="password" inputmode="numeric" minlength="6" autocomplete="off" placeholder="PIN" />
+      <button id="pin-submit">Entrar</button>
+    </div>
+  </section>
+
+  <section id="login-screen" class="screen auth-screen hidden">
+    <div class="auth-card">
+      <h1>SAN PRO Cloud</h1>
+      <p id="auth-copy">Inicia sesion para sincronizar tu negocio.</p>
+      <label>Correo</label>
+      <input id="auth-email" type="email" autocomplete="email" placeholder="tu@email.com" />
+      <label>Contrasena</label>
+      <input id="auth-password" type="password" autocomplete="current-password" placeholder="Minimo 6 caracteres" />
+      <label id="auth-name-label" class="hidden">Nombre</label>
+      <input id="auth-name" class="hidden" autocomplete="name" placeholder="Tu nombre" />
+      <button id="auth-submit">Entrar</button>
+      <button id="auth-toggle" class="ghost">Crear cuenta nueva</button>
+      <small>Primera cuenta: rol propietario. Luego podras crear perfiles para cobradores desde Supabase.</small>
+    </div>
+  </section>
+
+  <section id="license-screen" class="screen auth-screen hidden">
+    <div class="auth-card wide">
+      <h1>Activacion de Licencia</h1>
+      <p>El periodo de prueba termino. Envia tu ID al desarrollador para activar el sistema.</p>
+      <label>Tu ID unico</label>
+      <div class="inline-control">
+        <code id="installation-id"></code>
+        <button id="copy-installation">Copiar</button>
+      </div>
+      <button id="send-license-whatsapp" class="success">Enviar por WhatsApp</button>
+      <label>Clave de licencia</label>
+      <input id="license-key" placeholder="SANPRO2026-2027-01-19-xxxxxxxx" />
+      <button id="activate-license">Activar licencia</button>
+    </div>
+  </section>
+
+  <main id="app" class="app hidden">
+    <header class="topbar">
+      <div>
+        <p class="eyebrow">SAN PRO Cloud</p>
+        <h1 id="brand-title">SAN PRO</h1>
+        <span id="brand-subtitle">Sistema de prestamos y facturacion</span>
+      </div>
+      <div class="top-actions">
+        <span id="sync-status" class="sync-pill">Listo</span>
+        <span id="user-role" class="sync-pill">Owner</span>
+        <span>Hoy: <strong id="current-date"></strong></span>
+        <button id="show-installation">ID licencia</button>
+        <button id="export-backup">Exportar</button>
+        <label class="button ghost">
+          Importar
+          <input id="import-backup" type="file" accept=".json" hidden />
+        </label>
+        <button id="open-donation" class="ghost">Donar</button>
+        <button id="logout" class="ghost">Salir</button>
+      </div>
+    </header>
+
+    <nav class="tabs">
+      <button class="active" data-tab="dashboard">Dashboard</button>
+      <button data-tab="clients">Clientes</button>
+      <button data-tab="new-loan">Nuevo</button>
+      <button data-tab="payments">Cobros</button>
+      <button data-tab="collectors">Cobradores</button>
+      <button data-tab="invoices">Facturas</button>
+      <button data-tab="analytics">Analiticas</button>
+      <button data-tab="users">Usuarios</button>
+      <button data-tab="migration">Migracion</button>
+      <button data-tab="plans">Planes</button>
+      <button data-tab="settings">Ajustes</button>
+    </nav>
+
+    <section id="dashboard" class="tab active">
+      <div class="hero-panel">
+        <div>
+          <span>Resumen ejecutivo</span>
+          <h2 id="executive-headline">Cargando cartera...</h2>
+          <p id="executive-copy">Analizando balance, cobros y riesgo.</p>
+        </div>
+        <div class="hero-actions">
+          <button data-jump-tab="new-loan" class="success">Nuevo prestamo</button>
+          <button data-jump-tab="payments">Registrar cobro</button>
+        </div>
+      </div>
+      <div class="stats">
+        <article><span>Prestado</span><strong id="stat-loaned">$0.00</strong></article>
+        <article><span>Cobrado</span><strong id="stat-collected">$0.00</strong></article>
+        <article><span>Pendiente</span><strong id="stat-balance">$0.00</strong></article>
+        <article><span>Clientes</span><strong id="stat-clients">0</strong></article>
+        <article><span>Morosos</span><strong id="stat-late">0</strong></article>
+      </div>
+      <div class="dashboard-grid">
+        <article class="panel">
+          <div class="panel-heading">
+            <h3>Salud de cartera</h3>
+            <span id="health-score-label">0%</span>
+          </div>
+          <div class="health-ring" id="health-ring"><span id="health-score">0%</span></div>
+          <div class="mini-grid">
+            <span>Al dia <strong id="health-ok">0</strong></span>
+            <span>Morosos <strong id="health-late">0</strong></span>
+            <span>Pagados <strong id="health-paid">0</strong></span>
+          </div>
+        </article>
+        <article class="panel wide">
+          <div class="panel-heading">
+            <h3>Proximos cobros</h3>
+            <button data-jump-tab="payments" class="ghost">Cobrar</button>
+          </div>
+          <div id="upcoming-list" class="timeline"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading">
+            <h3>Meta mensual</h3>
+            <span id="monthly-goal-label">$0.00</span>
+          </div>
+          <div class="progress"><span id="monthly-goal-bar"></span></div>
+          <p id="monthly-goal-copy" class="muted">Configura una meta en Ajustes.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="clients" class="tab">
+      <div class="toolbar">
+        <input id="search-client" placeholder="Buscar por nombre, cedula o cobrador..." />
+        <select id="filter-status">
+          <option value="">Todos</option>
+          <option value="AL DIA">Al dia</option>
+          <option value="MOROSO">Moroso</option>
+          <option value="PAGADO">Pagado</option>
+        </select>
+        <select id="filter-collector"><option value="">Todos los cobradores</option></select>
+        <input id="filter-from" type="date" />
+        <input id="filter-to" type="date" />
+        <button id="clear-filters" class="ghost">Limpiar</button>
+      </div>
+      <div class="table-shell">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>Nombre</th><th>Tipo</th><th>Telefono</th><th>Cedula</th><th>Cobrador</th>
+              <th>Prestado</th><th>Balance</th><th>Proxima</th><th>Estado</th><th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody id="clients-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="new-loan" class="tab">
+      <h2>Nuevo Prestamo</h2>
+      <form id="loan-form" class="form-grid">
+        <select id="loan-type" required>
+          <option value="san">Tipo San - cuota fija</option>
+          <option value="redito">Tipo Redito - interes + capital final</option>
+        </select>
+        <input id="loan-name" required placeholder="Nombre completo" autocomplete="off" />
+        <input id="loan-phone" placeholder="Telefono WhatsApp" autocomplete="off" />
+        <input id="loan-document" placeholder="Cedula (opcional)" autocomplete="off" />
+        <select id="loan-collector" required></select>
+        <input id="loan-amount" required type="number" min="0" step="0.01" placeholder="Monto prestado" />
+        <input id="loan-interest" required type="number" min="0" step="0.01" value="30" placeholder="Interes %" />
+        <input id="loan-weeks" required type="number" min="1" value="13" placeholder="Semanas" />
+        <input id="loan-fee" type="number" min="0" step="0.01" value="0" placeholder="Cargo contrato" />
+        <input id="loan-date" type="date" required />
+      </form>
+      <div class="stats compact">
+        <article><span>Total a cobrar</span><strong id="calc-total">$0.00</strong></article>
+        <article><span id="calc-period-label">Cuota semanal</span><strong id="calc-weekly">$0.00</strong></article>
+        <article><span>Entregado</span><strong id="calc-delivered">$0.00</strong></article>
+        <article><span>Ganancia</span><strong id="calc-profit">$0.00</strong></article>
+      </div>
+      <p id="loan-type-help" class="muted loan-help">Tipo San reparte capital e interes en cuotas fijas.</p>
+      <button form="loan-form" class="success">Guardar prestamo</button>
+    </section>
+
+    <section id="payments" class="tab">
+      <h2>Registrar Cobro</h2>
+      <div class="payment-row">
+        <div class="search-box">
+          <input id="payment-search" placeholder="Buscar cliente por nombre" autocomplete="off" />
+          <div id="payment-results" class="results hidden"></div>
+        </div>
+        <input id="payment-amount" type="number" min="0" step="0.01" placeholder="Monto pagado" />
+        <span id="payment-info"></span>
+        <button id="register-payment">Registrar pago</button>
+      </div>
+      <div id="whatsapp-box" class="notice hidden">
+        <span id="whatsapp-message"></span>
+        <button id="send-receipt-whatsapp" class="success">Enviar recibo por WhatsApp</button>
+      </div>
+      <button id="print-last-invoice" class="ghost">Reimprimir ultima factura</button>
+    </section>
+
+    <section id="collectors" class="tab">
+      <h2>Cobradores</h2>
+      <div class="panel">
+        <input id="collector-name" placeholder="Escribe un nombre y presiona Enter" />
+        <div id="collector-tags" class="tags"></div>
+      </div>
+    </section>
+
+    <section id="invoices" class="tab">
+      <h2>Facturas</h2>
+      <div class="table-shell">
+        <table>
+          <thead><tr><th>Numero</th><th>Cliente</th><th>Monto</th><th>Balance nuevo</th><th>Fecha</th><th></th></tr></thead>
+          <tbody id="invoices-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="analytics" class="tab">
+      <div class="section-title">
+        <div>
+          <h2>Analiticas Premium</h2>
+          <p>Lectura rapida de riesgo, cobradores, ingresos y proyeccion.</p>
+        </div>
+        <button id="export-report" class="ghost">Exportar reporte</button>
+      </div>
+      <div class="analytics-grid">
+        <article class="panel wide">
+          <div class="panel-heading">
+            <h3>Rendimiento por cobrador</h3>
+            <span id="collector-count">0 cobradores</span>
+          </div>
+          <div id="collector-performance" class="bar-list"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading">
+            <h3>Distribucion de cartera</h3>
+            <span id="portfolio-total">$0.00</span>
+          </div>
+          <div id="portfolio-chart" class="donut"><span></span></div>
+          <div id="portfolio-legend" class="legend"></div>
+        </article>
+        <article class="panel wide">
+          <div class="panel-heading">
+            <h3>Proyeccion 30 dias</h3>
+            <span id="projection-total">$0.00</span>
+          </div>
+          <div id="projection-bars" class="projection-bars"></div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading">
+            <h3>Alertas inteligentes</h3>
+            <span id="alerts-count">0</span>
+          </div>
+          <div id="smart-alerts" class="alert-list"></div>
+        </article>
+      </div>
+    </section>
+
+    <section id="settings" class="tab">
+      <div class="section-title">
+        <div>
+          <h2>Ajustes del Negocio</h2>
+          <p>Personaliza la experiencia, recibos y metas.</p>
+        </div>
+      </div>
+      <form id="settings-form" class="settings-grid">
+        <article class="panel">
+          <h3>Marca</h3>
+          <label>Nombre del negocio</label>
+          <input id="setting-business-name" placeholder="SAN PRO" />
+          <label>Descripcion</label>
+          <input id="setting-business-tagline" placeholder="Sistema de prestamos y facturacion" />
+          <label>Telefono WhatsApp soporte</label>
+          <input id="setting-whatsapp" placeholder="18497851259" />
+        </article>
+        <article class="panel">
+          <h3>Metas</h3>
+          <label>Meta mensual de cobros</label>
+          <input id="setting-monthly-goal" type="number" min="0" step="0.01" placeholder="0.00" />
+          <label>Interes por defecto (%)</label>
+          <input id="setting-default-interest" type="number" min="0" step="0.01" placeholder="30" />
+          <label>Semanas por defecto</label>
+          <input id="setting-default-weeks" type="number" min="1" placeholder="13" />
+        </article>
+        <article class="panel">
+          <h3>Recibos</h3>
+          <label>Mensaje final de recibo</label>
+          <textarea id="setting-receipt-footer" rows="5" placeholder="Gracias por su pago."></textarea>
+          <label>Cuenta bancaria</label>
+          <input id="setting-bank-account" placeholder="9601016551" />
+        </article>
+      </form>
+      <div class="settings-actions">
+        <button id="save-settings" class="success">Guardar ajustes</button>
+        <button id="reset-settings" class="ghost">Restaurar valores</button>
+      </div>
+    </section>
+
+    <section id="collector-mobile" class="tab">
+      <div class="mobile-hero">
+        <span>Modo cobrador</span>
+        <h2 id="mobile-total">$0.00</h2>
+        <p id="mobile-copy">Cobros pendientes para tu ruta.</p>
+      </div>
+      <div class="mobile-search">
+        <input id="mobile-client-search" placeholder="Buscar cliente..." />
+      </div>
+      <div id="mobile-client-list" class="mobile-list"></div>
+    </section>
+
+    <section id="users" class="tab">
+      <div class="section-title">
+        <div>
+          <h2>Usuarios y Roles</h2>
+          <p>Asigna permisos y conecta usuarios con cobradores.</p>
+        </div>
+        <button id="refresh-users" class="ghost">Refrescar</button>
+      </div>
+      <div class="panel invite-panel">
+        <h3>Invitar usuario</h3>
+        <p class="muted">Crea la cuenta desde la pantalla de registro con el correo del usuario. Luego vuelve aqui, cambia su rol y asignale un cobrador si aplica.</p>
+      </div>
+      <div class="admin-grid">
+        <article class="panel">
+          <h3>Crear cobrador</h3>
+          <label>Nombre</label>
+          <input id="admin-collector-name" placeholder="Nombre del cobrador" />
+          <button id="admin-add-collector" class="success">Crear cobrador</button>
+        </article>
+        <article class="panel">
+          <h3>Estado del equipo</h3>
+          <div id="team-summary" class="mini-grid"></div>
+        </article>
+      </div>
+      <div class="table-shell">
+        <table>
+          <thead><tr><th>Nombre</th><th>Rol</th><th>Cobrador asignado</th><th>Estado</th><th></th></tr></thead>
+          <tbody id="users-body"></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="migration" class="tab">
+      <div class="section-title">
+        <div>
+          <h2>Migracion desde escritorio</h2>
+          <p>Importa los datos generados desde la version Electron/SQLite.</p>
+        </div>
+      </div>
+      <div class="admin-grid">
+        <article class="panel">
+          <h3>1. Exportar SQLite</h3>
+          <p class="muted">Ejecuta el script local incluido para convertir `sanpro.db` a JSON.</p>
+          <code class="code-block">node pwa-supabase/tools/export-sqlite.js "C:\ruta\sanpro.db"</code>
+        </article>
+        <article class="panel">
+          <h3>2. Importar archivo</h3>
+          <p class="muted">Selecciona el JSON exportado. Se agregaran clientes y cobradores a Supabase.</p>
+          <label class="button success">
+            Importar migracion
+            <input id="migration-file" type="file" accept=".json" hidden />
+          </label>
+        </article>
+      </div>
+      <div id="migration-result" class="notice hidden"></div>
+    </section>
+
+    <section id="plans" class="tab">
+      <div class="section-title">
+        <div>
+          <h2>Planes y Licencias</h2>
+          <p>Base para vender SAN PRO Cloud como SaaS.</p>
+        </div>
+        <button id="refresh-plan" class="ghost">Actualizar</button>
+      </div>
+      <div class="plans-grid">
+        <article class="plan-card">
+          <span>Basico</span>
+          <h3>RD$0</h3>
+          <p>Hasta 25 clientes, dashboard y cobros.</p>
+          <button data-select-plan="basic">Activar basico</button>
+        </article>
+        <article class="plan-card featured">
+          <span>Pro</span>
+          <h3>RD$999/mes</h3>
+          <p>Clientes ilimitados, analiticas, cobradores y recibos premium.</p>
+          <button data-select-plan="pro" class="success">Activar Pro</button>
+        </article>
+        <article class="plan-card">
+          <span>Premium</span>
+          <h3>RD$1,999/mes</h3>
+          <p>Multiusuario, soporte, marca blanca y reportes avanzados.</p>
+          <button data-select-plan="premium">Activar Premium</button>
+        </article>
+      </div>
+      <div class="panel current-plan">
+        <h3>Licencia actual</h3>
+        <div id="plan-status" class="plan-status"></div>
+      </div>
+    </section>
+  </main>
+
+  <nav class="mobile-nav">
+    <button data-mobile-tab="dashboard">Inicio</button>
+    <button data-mobile-tab="collector-mobile">Cobrar</button>
+    <button data-mobile-tab="clients">Clientes</button>
+    <button data-mobile-tab="payments">Pago</button>
+  </nav>
+
+  <div id="client-modal" class="modal hidden">
+    <div class="modal-card large">
+      <button class="close" data-close-modal>&times;</button>
+      <h2 id="modal-title"></h2>
+      <div id="schedule-grid" class="schedule-grid"></div>
+      <h3>Historial de Pagos</h3>
+      <div id="payment-history" class="history"></div>
+    </div>
+  </div>
+
+  <div id="donation-modal" class="modal hidden">
+    <div class="modal-card">
+      <button class="close" data-close-modal>&times;</button>
+      <h2>Apoya SAN PRO</h2>
+      <p>Si el sistema te ayuda en tu trabajo diario, puedes apoyar su desarrollo.</p>
+      <a id="paypal-link" class="button" target="_blank" rel="noreferrer">Donar por PayPal</a>
+      <div class="bank-box">
+        <span>BanReservas - Cuenta de Ahorros</span>
+        <strong id="bank-account"></strong>
+        <button id="copy-bank">Copiar cuenta</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="print-area"></div>
+  <canvas id="receipt-logo-canvas" width="240" height="80" class="hidden"></canvas>
+  <script src="./assets/app.js"></script>
+</body>
+</html>
