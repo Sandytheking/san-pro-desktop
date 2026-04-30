@@ -64,7 +64,7 @@ create table if not exists public.invoices (
 create table if not exists public.licenses (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid references auth.users(id) on delete cascade,
-  installation_id text not null unique,
+  installation_id text not null,
   license_key text,
   valid_until date not null,
   status text not null default 'trial' check (status in ('trial', 'active', 'expired')),
@@ -104,6 +104,11 @@ alter table public.invoices
 alter table public.licenses
   add column if not exists owner_id uuid references auth.users(id) on delete cascade;
 
+-- Older versions created a global unique constraint on installation_id.
+-- Multi-user mode needs the same browser/device installation to be reusable per account.
+alter table public.licenses
+  drop constraint if exists licenses_installation_id_key;
+
 -- Multi-user friendly uniqueness. These are partial indexes so old shared rows
 -- with owner_id null keep working while new user-owned rows are isolated.
 create unique index if not exists collectors_owner_name_unique
@@ -113,6 +118,14 @@ create unique index if not exists collectors_owner_name_unique
 create unique index if not exists invoices_owner_number_unique
   on public.invoices (owner_id, number)
   where owner_id is not null;
+
+create unique index if not exists licenses_owner_installation_unique
+  on public.licenses (owner_id, installation_id)
+  where owner_id is not null;
+
+create unique index if not exists licenses_shared_installation_unique
+  on public.licenses (installation_id)
+  where owner_id is null;
 
 create table if not exists public.audit_log (
   id uuid primary key default gen_random_uuid(),

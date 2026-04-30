@@ -1093,14 +1093,19 @@ async function activateLicense() {
   if (!dayjs(match[1], 'YYYY-MM-DD', true).isValid() || dayjs(match[1]).isBefore(dayjs(), 'day')) {
     return toast('Fecha de licencia invalida o vencida', false);
   }
-  const { error } = await state.supabase.from('licenses').upsert({
+  const payload = {
     owner_id: state.user?.id || null,
     installation_id: installationId,
     license_key: key,
     valid_until: match[1],
     status: 'active'
-  }, { onConflict: 'installation_id' });
-  if (error) return toast(error.message, false);
+  };
+  const existing = await state.supabase.from('licenses').select('id').eq('installation_id', installationId).maybeSingle();
+  if (existing.error) return toast(existing.error.message, false);
+  const result = existing.data
+    ? await state.supabase.from('licenses').update(payload).eq('id', existing.data.id)
+    : await state.supabase.from('licenses').insert(payload);
+  if (result.error) return toast(result.error.message, false);
   toast('Licencia activada');
   await startApp();
 }
