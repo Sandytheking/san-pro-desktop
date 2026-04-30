@@ -1,8 +1,7 @@
-const CACHE_NAME = 'sanpro-pwa-v5';
+const CACHE_NAME = 'sanpro-pwa-v6';
 const APP_SHELL = [
   './',
   './index.html',
-  './config.js',
   './manifest.webmanifest',
   './assets/styles.css',
   './assets/app.js',
