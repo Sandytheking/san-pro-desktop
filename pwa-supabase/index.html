@@ -59,9 +59,11 @@
       <input id="auth-password" type="password" autocomplete="current-password" placeholder="Minimo 6 caracteres" />
       <label id="auth-name-label" class="hidden">Nombre</label>
       <input id="auth-name" class="hidden" autocomplete="name" placeholder="Tu nombre" />
+      <label id="auth-business-code-label" class="hidden">Codigo de negocio</label>
+      <input id="auth-business-code" class="hidden" autocomplete="off" placeholder="Opcional para tu equipo" />
       <button id="auth-submit">Entrar</button>
       <button id="auth-toggle" class="ghost">Crear cuenta nueva</button>
-      <small>Primera cuenta: rol propietario. Luego podras crear perfiles para cobradores desde Supabase.</small>
+      <small>Sin codigo creas tu propio negocio. Con codigo entras al equipo de un admin.</small>
     </div>
   </section>
 
@@ -360,7 +362,8 @@
       </div>
       <div class="panel invite-panel">
         <h3>Invitar usuario</h3>
-        <p class="muted">Crea la cuenta desde la pantalla de registro con el correo del usuario. Luego vuelve aqui, cambia su rol y asignale un cobrador si aplica.</p>
+        <p class="muted">Dale este codigo a tu cobrador o admin. Esa persona crea su cuenta con este codigo y luego aparece aqui para asignarle rol y cobrador.</p>
+        <code id="business-invite-code" class="code-block">---</code>
       </div>
       <div class="admin-grid">
         <article class="panel">

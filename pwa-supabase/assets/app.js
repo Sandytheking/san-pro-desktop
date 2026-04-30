@@ -40,6 +40,8 @@ const cfg = () => ({ ...defaults, ...(window.SANPRO_CONFIG || {}), ...state.sett
 const money = n => '$' + Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const today = () => dayjs().format('YYYY-MM-DD');
 const roundMoney = n => Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
+const makeInviteCode = () => crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase();
+const teamOwnerId = () => state.profile?.business_owner_id || state.profile?.id || state.user?.id || null;
 
 function toast(message, ok = true) {
   const t = $('toast');
@@ -143,8 +145,9 @@ function getInstallationId() {
 }
 
 async function getConfigValue(key) {
-  const scopedKey = state.user?.id ? `${state.user.id}:${key}` : key;
-  if (state.user?.id) {
+  const ownerId = teamOwnerId();
+  const scopedKey = ownerId ? `${ownerId}:${key}` : key;
+  if (ownerId) {
     const own = await state.supabase.from('app_config').select('value').eq('key', scopedKey).maybeSingle();
     if (own.error) throw own.error;
     if (own.data) return own.data.value;
@@ -155,8 +158,9 @@ async function getConfigValue(key) {
 }
 
 async function setConfigValue(key, value) {
-  const scopedKey = state.user?.id ? `${state.user.id}:${key}` : key;
-  const { error } = await state.supabase.from('app_config').upsert({ key: scopedKey, value, owner_id: state.user?.id || null });
+  const ownerId = teamOwnerId();
+  const scopedKey = ownerId ? `${ownerId}:${key}` : key;
+  const { error } = await state.supabase.from('app_config').upsert({ key: scopedKey, value, owner_id: ownerId });
   if (error) throw error;
 }
 
@@ -603,6 +607,7 @@ async function loadProfiles() {
   }
   state.profiles = data || [];
   renderUsers();
+  renderTeamSummary();
 }
 
 function renderUsers() {
@@ -639,6 +644,9 @@ function renderTeamSummary() {
     <span>Admins <strong>${roles.admin || 0}</strong></span>
     <span>Cobradores <strong>${roles.collector || 0}</strong></span>
   `;
+  if ($('business-invite-code')) {
+    $('business-invite-code').textContent = state.profile?.invite_code || '---';
+  }
 }
 
 function renderPlan() {
@@ -676,7 +684,8 @@ async function saveUserProfile(id) {
 
   const { error } = await state.supabase.from('profiles').update({
     role,
-    collector_name: collectorName
+    collector_name: collectorName,
+    business_owner_id: teamOwnerId()
   }).eq('id', id);
   if (error) return toast(error.message, false);
   toast('Usuario actualizado');
@@ -877,7 +886,7 @@ async function saveLoan(event) {
     calendario: schedule,
     historial: []
   };
-  const row = { ...clientToRow(client), owner_id: state.user?.id || null };
+  const row = { ...clientToRow(client), owner_id: teamOwnerId() };
   const insertRes = await state.supabase.from('clients').insert(row).select('*').single();
   if (insertRes.error) return toast(insertRes.error.message, false);
   if (!insertRes.data?.id) return toast('Supabase no devolvio el prestamo guardado. Revisa las politicas RLS.', false);
@@ -1117,7 +1126,7 @@ async function applyPayment(c, amount, queuedAt = null) {
   if (updateRes.error) return toast(updateRes.error.message, false);
 
   const invoice = {
-    owner_id: state.user?.id || null,
+    owner_id: teamOwnerId(),
     number: invoiceNumber,
     client_id: c.id,
     client_name: c.nombre,
@@ -1256,7 +1265,7 @@ function makeReceiptLogo() {
 async function addCollector(name) {
   const clean = name.trim();
   if (!clean) return;
-  const { error } = await state.supabase.from('collectors').insert({ name: clean, owner_id: state.user?.id || null });
+  const { error } = await state.supabase.from('collectors').insert({ name: clean, owner_id: teamOwnerId() });
   if (error) return toast(error.message, false);
   $('collector-name').value = '';
   await loadAll();
@@ -1321,13 +1330,13 @@ async function importBackup(file) {
   const payload = JSON.parse(await file.text());
   if (Array.isArray(payload.collectors)) {
     for (const c of payload.collectors) {
-      await state.supabase.from('collectors').upsert({ name: c.name || c.nombre, owner_id: state.user?.id || null }, { onConflict: 'name' });
+      await state.supabase.from('collectors').upsert({ name: c.name || c.nombre, owner_id: teamOwnerId() }, { onConflict: 'name' });
     }
   }
   if (Array.isArray(payload.clients)) {
     for (const c of payload.clients) {
       const row = clientToRow(c);
-      await state.supabase.from('clients').insert({ ...row, owner_id: state.user?.id || null });
+      await state.supabase.from('clients').insert({ ...row, owner_id: teamOwnerId() });
     }
   }
   await loadAll();
@@ -1340,13 +1349,13 @@ async function importMigration(file) {
   const result = { collectors: 0, clients: 0 };
   if (Array.isArray(payload.collectors)) {
     for (const c of payload.collectors) {
-      await state.supabase.from('collectors').upsert({ name: c.name || c.nombre, owner_id: state.user?.id || null }, { onConflict: 'name' });
+      await state.supabase.from('collectors').upsert({ name: c.name || c.nombre, owner_id: teamOwnerId() }, { onConflict: 'name' });
       result.collectors++;
     }
   }
   const clients = Array.isArray(payload.clients) ? payload.clients : [];
   for (const c of clients) {
-    await state.supabase.from('clients').insert({ ...clientToRow(c), owner_id: state.user?.id || null });
+    await state.supabase.from('clients').insert({ ...clientToRow(c), owner_id: teamOwnerId() });
     result.clients++;
   }
   $('migration-result').classList.remove('hidden');
@@ -1384,7 +1393,7 @@ async function verifyLicense() {
   if (error) throw error;
   if (!data) {
     const trialUntil = dayjs().add(30, 'day').format('YYYY-MM-DD');
-    const insert = await state.supabase.from('licenses').insert({ installation_id: installationId, valid_until: trialUntil, status: 'trial', owner_id: state.user?.id || null });
+    const insert = await state.supabase.from('licenses').insert({ installation_id: installationId, valid_until: trialUntil, status: 'trial', owner_id: teamOwnerId() });
     if (insert.error) throw insert.error;
     toast(`Modo prueba activo hasta ${dayjs(trialUntil).format('DD/MM/YYYY')}`);
     return true;
@@ -1408,7 +1417,7 @@ async function activateLicense() {
     return toast('Fecha de licencia invalida o vencida', false);
   }
   const payload = {
-    owner_id: state.user?.id || null,
+    owner_id: teamOwnerId(),
     installation_id: installationId,
     license_key: key,
     valid_until: match[1],
@@ -1436,17 +1445,30 @@ async function loadProfile() {
   let { data, error } = await state.supabase.from('profiles').select('*').eq('id', state.user.id).maybeSingle();
   if (error) throw error;
   if (!data) {
+    const inviteCode = makeInviteCode();
     const insert = await state.supabase.from('profiles').insert({
       id: state.user.id,
       full_name: state.user.user_metadata?.full_name || state.user.email?.split('@')[0] || 'Usuario',
-      role: 'owner'
+      role: 'owner',
+      business_owner_id: state.user.id,
+      invite_code: inviteCode
     }).select().single();
     if (insert.error) throw insert.error;
     data = insert.data;
+  } else if (!data.business_owner_id || !data.invite_code) {
+    const patch = {};
+    if (!data.business_owner_id) patch.business_owner_id = data.role === 'owner' ? data.id : data.id;
+    if (!data.invite_code && ['owner', 'admin'].includes(data.role)) patch.invite_code = makeInviteCode();
+    if (Object.keys(patch).length) {
+      const update = await state.supabase.from('profiles').update(patch).eq('id', state.user.id).select().single();
+      if (update.error) throw update.error;
+      data = update.data;
+    }
   }
   state.profile = data;
   $('user-role').textContent = data.role;
   document.body.dataset.role = data.role;
+  if ($('business-invite-code')) $('business-invite-code').textContent = data.invite_code || '---';
   return data;
 }
 
@@ -1458,6 +1480,8 @@ function setAuthMode(mode) {
   $('auth-toggle').textContent = signup ? 'Ya tengo cuenta' : 'Crear cuenta nueva';
   $('auth-name').classList.toggle('hidden', !signup);
   $('auth-name-label').classList.toggle('hidden', !signup);
+  $('auth-business-code').classList.toggle('hidden', !signup);
+  $('auth-business-code-label').classList.toggle('hidden', !signup);
 }
 
 async function submitAuth() {
@@ -1468,7 +1492,12 @@ async function submitAuth() {
     const { error } = await state.supabase.auth.signUp({
       email,
       password,
-      options: { data: { full_name: $('auth-name').value.trim() } }
+      options: {
+        data: {
+          full_name: $('auth-name').value.trim(),
+          business_code: $('auth-business-code').value.trim().toUpperCase()
+        }
+      }
     });
     if (error) return toast(error.message, false);
     toast('Cuenta creada. Si Supabase pide confirmacion, revisa tu correo.');
@@ -1576,7 +1605,7 @@ function bindEvents() {
   $('reject-terms').onclick = () => toast('Debe aceptar los terminos para usar SAN PRO', false);
   $('auth-submit').onclick = () => submitAuth().catch(err => toast(err.message, false));
   $('auth-toggle').onclick = () => setAuthMode(state.authMode === 'login' ? 'signup' : 'login');
-  ['auth-email', 'auth-password', 'auth-name'].forEach(id => {
+  ['auth-email', 'auth-password', 'auth-name', 'auth-business-code'].forEach(id => {
     $(id).addEventListener('keydown', e => {
       if (e.key === 'Enter') submitAuth().catch(err => toast(err.message, false));
     });

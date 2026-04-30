@@ -12,6 +12,8 @@ create table if not exists public.app_config (
 
 create table if not exists public.profiles (
   id uuid primary key references auth.users(id) on delete cascade,
+  business_owner_id uuid references auth.users(id) on delete cascade,
+  invite_code text unique,
   full_name text,
   role text not null default 'owner' check (role in ('owner', 'admin', 'collector', 'viewer')),
   collector_name text,
@@ -79,6 +81,12 @@ create table if not exists public.licenses (
 alter table public.app_config
   add column if not exists owner_id uuid references auth.users(id) on delete cascade;
 
+alter table public.profiles
+  add column if not exists business_owner_id uuid references auth.users(id) on delete cascade;
+
+alter table public.profiles
+  add column if not exists invite_code text;
+
 alter table public.collectors
   add column if not exists owner_id uuid references auth.users(id) on delete cascade;
 
@@ -113,8 +121,17 @@ alter table public.licenses
 alter table public.licenses
   drop constraint if exists licenses_installation_id_key;
 
--- Multi-user friendly uniqueness. These are partial indexes so old shared rows
--- with owner_id null keep working while new user-owned rows are isolated.
+alter table public.collectors
+  drop constraint if exists collectors_name_key;
+
+alter table public.invoices
+  drop constraint if exists invoices_number_key;
+
+create unique index if not exists profiles_invite_code_unique
+  on public.profiles (invite_code)
+  where invite_code is not null;
+
+-- Multi-tenant uniqueness. Every business is isolated by owner_id.
 create unique index if not exists collectors_owner_name_unique
   on public.collectors (owner_id, name)
   where owner_id is not null;
@@ -130,6 +147,27 @@ create unique index if not exists licenses_owner_installation_unique
 create unique index if not exists licenses_shared_installation_unique
   on public.licenses (installation_id)
   where owner_id is null;
+
+update public.profiles
+set business_owner_id = id
+where business_owner_id is null;
+
+update public.profiles
+set invite_code = upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10))
+where invite_code is null
+  and role in ('owner', 'admin');
+
+update public.collectors
+set owner_id = (select id from public.profiles where role = 'owner' order by created_at asc limit 1)
+where owner_id is null;
+
+update public.clients
+set owner_id = (select id from public.profiles where role = 'owner' order by created_at asc limit 1)
+where owner_id is null;
+
+update public.invoices
+set owner_id = (select id from public.profiles where role = 'owner' order by created_at asc limit 1)
+where owner_id is null;
 
 create table if not exists public.audit_log (
   id uuid primary key default gen_random_uuid(),
@@ -178,20 +216,180 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  matched_business_owner uuid;
+  requested_code text;
 begin
-  insert into public.profiles (id, full_name, role)
+  requested_code := nullif(upper(trim(coalesce(new.raw_user_meta_data->>'business_code', ''))), '');
+
+  if requested_code is not null then
+    select coalesce(business_owner_id, id)
+      into matched_business_owner
+    from public.profiles
+    where invite_code = requested_code
+    limit 1;
+  end if;
+
+  insert into public.profiles (id, full_name, role, business_owner_id, invite_code)
   values (
     new.id,
     coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+    case when matched_business_owner is null then 'owner' else 'viewer' end,
+    coalesce(matched_business_owner, new.id),
     case
-      when exists (select 1 from public.profiles) then 'viewer'
-      else 'owner'
+      when matched_business_owner is null then upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10))
+      else null
     end
   )
   on conflict (id) do nothing;
+
   return new;
 end;
 $$;
+
+create or replace function public.current_business_owner_id()
+returns uuid
+language sql
+security definer
+set search_path = public
+as $$
+  select business_owner_id
+  from public.profiles
+  where id = auth.uid()
+    and active = true
+  limit 1;
+$$;
+
+create or replace function public.current_user_role()
+returns text
+language sql
+security definer
+set search_path = public
+as $$
+  select role
+  from public.profiles
+  where id = auth.uid()
+    and active = true
+  limit 1;
+$$;
+
+create or replace function public.current_collector_name()
+returns text
+language sql
+security definer
+set search_path = public
+as $$
+  select collector_name
+  from public.profiles
+  where id = auth.uid()
+    and active = true
+  limit 1;
+$$;
+
+create or replace function public.same_business(target_owner uuid)
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select target_owner is not null
+    and target_owner = public.current_business_owner_id();
+$$;
+
+create or replace function public.can_access_client(target_owner uuid, target_collector text)
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select public.same_business(target_owner)
+    and (
+      public.current_user_role() in ('owner', 'admin', 'viewer')
+      or (
+        public.current_user_role() = 'collector'
+        and target_collector = public.current_collector_name()
+      )
+    );
+$$;
+
+create or replace function public.can_manage_business()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select public.current_user_role() in ('owner', 'admin');
+$$;
+
+create or replace function public.can_write_business()
+returns boolean
+language sql
+security definer
+set search_path = public
+as $$
+  select public.current_user_role() in ('owner', 'admin', 'collector');
+$$;
+
+create or replace function public.ensure_profile_business_owner()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.business_owner_id is null then
+    new.business_owner_id := new.id;
+  end if;
+  if new.invite_code is null and new.role in ('owner', 'admin') then
+    new.invite_code := upper(substr(replace(gen_random_uuid()::text, '-', ''), 1, 10));
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists profiles_ensure_business_owner on public.profiles;
+create trigger profiles_ensure_business_owner
+before insert on public.profiles
+for each row execute function public.ensure_profile_business_owner();
+
+create or replace function public.ensure_tenant_owner_id()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if new.owner_id is null then
+    new.owner_id := public.current_business_owner_id();
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists collectors_ensure_tenant on public.collectors;
+create trigger collectors_ensure_tenant
+before insert on public.collectors
+for each row execute function public.ensure_tenant_owner_id();
+
+drop trigger if exists clients_ensure_tenant on public.clients;
+create trigger clients_ensure_tenant
+before insert on public.clients
+for each row execute function public.ensure_tenant_owner_id();
+
+drop trigger if exists invoices_ensure_tenant on public.invoices;
+create trigger invoices_ensure_tenant
+before insert on public.invoices
+for each row execute function public.ensure_tenant_owner_id();
+
+drop trigger if exists licenses_ensure_tenant on public.licenses;
+create trigger licenses_ensure_tenant
+before insert on public.licenses
+for each row execute function public.ensure_tenant_owner_id();
+
+drop trigger if exists audit_ensure_tenant on public.audit_log;
+create trigger audit_ensure_tenant
+before insert on public.audit_log
+for each row execute function public.ensure_tenant_owner_id();
 
 create or replace function public.can_manage_profiles()
 returns boolean
@@ -205,6 +403,7 @@ as $$
     where id = auth.uid()
       and role in ('owner', 'admin')
       and active = true
+      and business_owner_id = public.current_business_owner_id()
   );
 $$;
 
@@ -225,35 +424,92 @@ alter table public.licenses enable row level security;
 alter table public.audit_log enable row level security;
 
 drop policy if exists "sanpro_app_config_all" on public.app_config;
-create policy "sanpro_app_config_all" on public.app_config
-for all using (owner_id is null or owner_id = auth.uid()) with check (owner_id is null or owner_id = auth.uid());
+drop policy if exists "sanpro_app_config_select" on public.app_config;
+drop policy if exists "sanpro_app_config_write" on public.app_config;
+create policy "sanpro_app_config_select" on public.app_config
+for select using (public.same_business(owner_id));
+create policy "sanpro_app_config_write" on public.app_config
+for all using (public.can_manage_business() and public.same_business(owner_id))
+with check (public.can_manage_business() and public.same_business(owner_id));
 
 drop policy if exists "sanpro_profiles_read" on public.profiles;
-create policy "sanpro_profiles_read" on public.profiles
-for select using (id = auth.uid() or auth.uid() is not null);
-
+drop policy if exists "sanpro_profiles_insert_self" on public.profiles;
 drop policy if exists "sanpro_profiles_update_self" on public.profiles;
-
 drop policy if exists "sanpro_profiles_manage" on public.profiles;
+create policy "sanpro_profiles_read" on public.profiles
+for select using (id = auth.uid() or business_owner_id = public.current_business_owner_id());
+create policy "sanpro_profiles_insert_self" on public.profiles
+for insert with check (id = auth.uid() and business_owner_id = auth.uid());
 create policy "sanpro_profiles_manage" on public.profiles
-for update using (public.can_manage_profiles()) with check (public.can_manage_profiles());
+for update using (public.can_manage_profiles() and business_owner_id = public.current_business_owner_id())
+with check (public.can_manage_profiles() and business_owner_id = public.current_business_owner_id());
 
 drop policy if exists "sanpro_collectors_all" on public.collectors;
-create policy "sanpro_collectors_all" on public.collectors
-for all using (owner_id is null or owner_id = auth.uid()) with check (owner_id is null or owner_id = auth.uid());
+drop policy if exists "sanpro_collectors_select" on public.collectors;
+drop policy if exists "sanpro_collectors_manage" on public.collectors;
+create policy "sanpro_collectors_select" on public.collectors
+for select using (
+  public.same_business(owner_id)
+  and (
+    public.current_user_role() in ('owner', 'admin', 'viewer')
+    or (public.current_user_role() = 'collector' and name = public.current_collector_name())
+  )
+);
+create policy "sanpro_collectors_manage" on public.collectors
+for all using (public.can_manage_business() and public.same_business(owner_id))
+with check (public.can_manage_business() and public.same_business(owner_id));
 
 drop policy if exists "sanpro_clients_all" on public.clients;
-create policy "sanpro_clients_all" on public.clients
-for all using (owner_id is null or owner_id = auth.uid()) with check (owner_id is null or owner_id = auth.uid());
+drop policy if exists "sanpro_clients_select" on public.clients;
+drop policy if exists "sanpro_clients_insert" on public.clients;
+drop policy if exists "sanpro_clients_update" on public.clients;
+drop policy if exists "sanpro_clients_delete" on public.clients;
+create policy "sanpro_clients_select" on public.clients
+for select using (public.can_access_client(owner_id, collector));
+create policy "sanpro_clients_insert" on public.clients
+for insert with check (public.can_manage_business() and public.same_business(owner_id));
+create policy "sanpro_clients_update" on public.clients
+for update using (public.can_access_client(owner_id, collector))
+with check (public.can_access_client(owner_id, collector));
+create policy "sanpro_clients_delete" on public.clients
+for delete using (public.can_manage_business() and public.same_business(owner_id));
 
 drop policy if exists "sanpro_invoices_all" on public.invoices;
-create policy "sanpro_invoices_all" on public.invoices
-for all using (owner_id is null or owner_id = auth.uid()) with check (owner_id is null or owner_id = auth.uid());
+drop policy if exists "sanpro_invoices_select" on public.invoices;
+drop policy if exists "sanpro_invoices_insert" on public.invoices;
+create policy "sanpro_invoices_select" on public.invoices
+for select using (
+  public.same_business(owner_id)
+  and exists (
+    select 1 from public.clients c
+    where c.id = client_id
+      and public.can_access_client(c.owner_id, c.collector)
+  )
+);
+create policy "sanpro_invoices_insert" on public.invoices
+for insert with check (
+  public.can_write_business()
+  and public.same_business(owner_id)
+  and exists (
+    select 1 from public.clients c
+    where c.id = client_id
+      and public.can_access_client(c.owner_id, c.collector)
+  )
+);
 
 drop policy if exists "sanpro_licenses_all" on public.licenses;
-create policy "sanpro_licenses_all" on public.licenses
-for all using (owner_id is null or owner_id = auth.uid()) with check (owner_id is null or owner_id = auth.uid());
+drop policy if exists "sanpro_licenses_select" on public.licenses;
+drop policy if exists "sanpro_licenses_write" on public.licenses;
+create policy "sanpro_licenses_select" on public.licenses
+for select using (public.same_business(owner_id));
+create policy "sanpro_licenses_write" on public.licenses
+for all using (public.can_manage_business() and public.same_business(owner_id))
+with check (public.can_manage_business() and public.same_business(owner_id));
 
 drop policy if exists "sanpro_audit_all" on public.audit_log;
-create policy "sanpro_audit_all" on public.audit_log
-for all using (owner_id is null or owner_id = auth.uid()) with check (owner_id is null or owner_id = auth.uid());
+drop policy if exists "sanpro_audit_select" on public.audit_log;
+drop policy if exists "sanpro_audit_insert" on public.audit_log;
+create policy "sanpro_audit_select" on public.audit_log
+for select using (public.same_business(owner_id));
+create policy "sanpro_audit_insert" on public.audit_log
+for insert with check (public.same_business(owner_id));
