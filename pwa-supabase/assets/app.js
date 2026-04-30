@@ -39,6 +39,7 @@ const planLimits = {
 const cfg = () => ({ ...defaults, ...(window.SANPRO_CONFIG || {}), ...state.settings });
 const money = n => '$' + Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const today = () => dayjs().format('YYYY-MM-DD');
+const roundMoney = n => Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
 
 function toast(message, ok = true) {
   const t = $('toast');
@@ -89,7 +90,24 @@ function hasSupabaseConfig() {
   return supabaseUrl && supabaseAnonKey && !supabaseUrl.includes('TU-PROYECTO') && !supabaseAnonKey.includes('TU_SUPABASE');
 }
 
+function allowManualSupabaseSetup() {
+  return ['localhost', '127.0.0.1', ''].includes(location.hostname) || location.protocol === 'file:';
+}
+
 function showSetup(message = '') {
+  if (!allowManualSupabaseSetup()) {
+    const card = document.querySelector('#setup-screen .auth-card');
+    if (card) {
+      card.innerHTML = `
+        <h1>SAN PRO</h1>
+        <p>La configuracion de Supabase no esta disponible.</p>
+        <small>Revisa las variables SANPRO_SUPABASE_URL y SANPRO_SUPABASE_ANON_KEY en Vercel y vuelve a desplegar.</small>
+      `;
+    }
+    showScreen('setup-screen');
+    if (message) toast(message, false);
+    return;
+  }
   const { supabaseUrl, supabaseAnonKey } = getSupabaseConfig();
   $('setup-url').value = supabaseUrl && !supabaseUrl.includes('TU-PROYECTO') ? supabaseUrl : '';
   $('setup-key').value = supabaseAnonKey && !supabaseAnonKey.includes('TU_SUPABASE') ? supabaseAnonKey : '';
@@ -276,15 +294,33 @@ function clientToRow(c) {
   };
 }
 
+function periodUnit(clientOrType) {
+  const type = typeof clientOrType === 'string' ? clientOrType : clientOrType?.tipo;
+  return type === 'redito' ? 'month' : 'week';
+}
+
+function periodLabel(clientOrType, index) {
+  return periodUnit(clientOrType) === 'month' ? `Mes ${index + 1}` : `Semana ${index + 1}`;
+}
+
+function periodDueDate(client, index) {
+  const unit = periodUnit(client);
+  return dayjs(client.fechaInicio).add(index + 1, unit);
+}
+
+function paidPeriodCount(client) {
+  return client.calendario.filter(s => Number(s.pagado || 0) >= Number(s.cuota || 0)).length;
+}
+
 function loanStatus(c) {
   if (c.balance <= 0) return { text: 'PAGADO', cls: 'done', next: '-' };
-  const start = dayjs(c.fechaInicio);
-  const firstDue = start.add(7, 'day');
-  const elapsed = Math.floor(dayjs().diff(firstDue, 'week'));
+  const unit = periodUnit(c);
+  const firstDue = periodDueDate(c, 0);
+  const elapsed = Math.floor(dayjs().diff(firstDue, unit));
   const expected = Math.max(0, elapsed + 1);
-  const paidWeeks = c.calendario.filter(s => Number(s.pagado || 0) >= Number(s.cuota || 0)).length;
-  const late = expected - paidWeeks;
-  const nextDate = start.add(7 + paidWeeks * 7, 'day').format('DD/MM/YYYY');
+  const paidPeriods = paidPeriodCount(c);
+  const late = expected - paidPeriods;
+  const nextDate = periodDueDate(c, paidPeriods).format('DD/MM/YYYY');
   if (late > 1) return { text: 'MOROSO', cls: 'late', next: nextDate };
   if (dayjs().isBefore(firstDue)) return { text: 'AL DIA', cls: 'ok', next: firstDue.format('DD/MM/YYYY') };
   return { text: 'AL DIA', cls: 'ok', next: nextDate };
@@ -296,9 +332,10 @@ function calculateLoan() {
   const interest = Number($('loan-interest').value || 0);
   const weeks = Math.max(1, Number($('loan-weeks').value || 1));
   const fee = Number($('loan-fee').value || 0);
-  const periodInterest = amount * interest / 100;
+  const principal = amount + fee;
+  const periodInterest = roundMoney(principal * interest / 100);
   const total = type === 'redito'
-    ? amount + fee + (periodInterest * weeks)
+    ? principal + (periodInterest * weeks)
     : amount + (amount * interest / 100) + fee;
   const weekly = type === 'redito' ? periodInterest : total / weeks;
   return { type, amount, interest, weeks, fee, total, weekly, profit: total - amount };
@@ -310,10 +347,107 @@ function updatePreview() {
   $('calc-weekly').textContent = money(calc.weekly);
   $('calc-delivered').textContent = money(calc.amount);
   $('calc-profit').textContent = money(calc.profit);
-  $('calc-period-label').textContent = calc.type === 'redito' ? 'Redito por periodo' : 'Cuota semanal';
+  $('calc-total-label').textContent = calc.type === 'redito' ? 'Total proyectado' : 'Total a cobrar';
+  $('calc-period-label').textContent = calc.type === 'redito' ? 'Redito mensual' : 'Cuota semanal';
+  $('calc-profit-label').textContent = calc.type === 'redito' ? 'Ganancia proyectada' : 'Ganancia';
+  $('loan-interest').placeholder = calc.type === 'redito' ? 'Interes mensual %' : 'Interes %';
+  $('loan-weeks').placeholder = calc.type === 'redito' ? 'Meses estimados' : 'Semanas';
   $('loan-type-help').textContent = calc.type === 'redito'
-    ? 'Tipo Redito: cada periodo paga solo interes; en la ultima cuota se suma el capital.'
+    ? 'Tipo Redito: cobra interes mensual sobre el capital pendiente. Si solo paga redito, el capital queda igual; si paga mas, el excedente baja capital.'
     : 'Tipo San: capital, interes y cargos se reparten en cuotas fijas.';
+}
+
+function normalizeReditoWeek(week) {
+  const interest = Number(week.interes || 0);
+  const paid = Number(week.pagado || 0);
+  const paidInterest = Number.isFinite(Number(week.pagoInteres))
+    ? Number(week.pagoInteres)
+    : Math.min(paid, interest);
+  const paidCapital = Number.isFinite(Number(week.pagoCapital))
+    ? Number(week.pagoCapital)
+    : Math.max(0, paid - interest);
+  return {
+    ...week,
+    pagoInteres: roundMoney(paidInterest),
+    pagoCapital: roundMoney(paidCapital)
+  };
+}
+
+function recalculateReditoSchedule(client, sourceSchedule = client.calendario, options = {}) {
+  const weeks = Math.max(1, Number(client.semanas || 0), sourceSchedule.length || 0);
+  const rate = Number(client.interes || 0) / 100;
+  const principalTotal = roundMoney(Number(client.monto || 0) + Number(client.cargo || 0));
+  const oldSchedule = Array.from({ length: weeks }, (_, i) => normalizeReditoWeek(sourceSchedule[i] || {}));
+  let principalRemaining = principalTotal;
+
+  let schedule = oldSchedule.map((week, index) => {
+    const paidCapital = roundMoney(Math.min(Number(week.pagoCapital || 0), principalRemaining));
+    const recalculatedInterest = roundMoney(principalRemaining * rate);
+    const paidInterest = roundMoney(Math.min(Number(week.pagoInteres || 0), Math.max(recalculatedInterest, Number(week.pagoInteres || 0))));
+    const next = {
+      ...week,
+      tipo: 'redito',
+      capitalBase: principalTotal,
+      interes: recalculatedInterest,
+      capital: 0,
+      cuota: recalculatedInterest,
+      pagoInteres: paidInterest,
+      pagoCapital: paidCapital,
+      pagado: roundMoney(paidInterest + paidCapital)
+    };
+    principalRemaining = roundMoney(principalRemaining - paidCapital);
+    return next;
+  });
+
+  const interestPeriodsPaid = schedule.every(week => Number(week.pagoInteres || 0) >= Number(week.interes || 0));
+  if (options.extendIfCurrentPaid && principalRemaining > 0.009 && interestPeriodsPaid) {
+    schedule.push({
+      tipo: 'redito',
+      capitalBase: principalTotal,
+      interes: roundMoney(principalRemaining * rate),
+      capital: 0,
+      cuota: roundMoney(principalRemaining * rate),
+      pagado: 0,
+      pagoInteres: 0,
+      pagoCapital: 0
+    });
+  }
+
+  return schedule;
+}
+
+function reditoBalance(schedule, client = null) {
+  const principalPaid = roundMoney(schedule.reduce((sum, week) => sum + Number(week.pagoCapital || 0), 0));
+  const principalTotal = client
+    ? roundMoney(Number(client.monto || 0) + Number(client.cargo || 0))
+    : roundMoney(schedule.reduce((max, week) => Math.max(max, Number(week.capitalBase || 0), Number(week.capital || 0)), 0));
+  const scheduleBalance = roundMoney(schedule.reduce((sum, week) => {
+    const dueInterest = Number(week.interes || 0) - Number(week.pagoInteres || 0);
+    return sum + Math.max(0, dueInterest);
+  }, 0));
+  return roundMoney(scheduleBalance + Math.max(0, principalTotal - principalPaid));
+}
+
+function reditoProjectedTotal(schedule) {
+  return roundMoney(schedule.reduce((sum, week) => sum + Number(week.interes || 0), 0));
+}
+
+function reditoPaymentSummary(client) {
+  const schedule = recalculateReditoSchedule(client);
+  const principalTotal = roundMoney(Number(client.monto || 0) + Number(client.cargo || 0));
+  const principalPaid = roundMoney(schedule.reduce((sum, week) => sum + Number(week.pagoCapital || 0), 0));
+  const principalPending = Math.max(0, roundMoney(principalTotal - principalPaid));
+  const pending = schedule.find(week => Number(week.cuota || 0) - Number(week.pagado || 0) > 0.009);
+  const interestDue = pending
+    ? Math.max(0, roundMoney(Number(pending.interes || 0) - Number(pending.pagoInteres || 0)))
+    : 0;
+
+  return {
+    schedule,
+    principalPending,
+    interestDue,
+    currentDue: pending ? Math.max(0, roundMoney(Number(pending.cuota || 0) - Number(pending.pagado || 0))) : 0
+  };
 }
 
 async function loadAll() {
@@ -381,8 +515,7 @@ function clientBuckets() {
 }
 
 function nextDueDate(client) {
-  const paidWeeks = client.calendario.filter(s => Number(s.pagado || 0) >= Number(s.cuota || 0)).length;
-  return dayjs(client.fechaInicio).add(7 + paidWeeks * 7, 'day');
+  return periodDueDate(client, paidPeriodCount(client));
 }
 
 function monthCollected() {
@@ -523,6 +656,24 @@ function renderPlan() {
 async function saveUserProfile(id) {
   const role = document.querySelector(`[data-user-role="${id}"]`)?.value || 'viewer';
   const collectorName = document.querySelector(`[data-user-collector="${id}"]`)?.value || null;
+  const target = state.profiles.find(p => p.id === id);
+  const privilegedRoles = ['owner', 'admin'];
+  const privilegedCount = state.profiles.filter(p => privilegedRoles.includes(p.role) && p.active).length;
+  const isRemovingPrivilegedRole = privilegedRoles.includes(target?.role) && !privilegedRoles.includes(role);
+
+  if (id === state.user?.id && isRemovingPrivilegedRole) {
+    toast('No puedes quitarte tu propio acceso admin desde esta pantalla.', false);
+    return;
+  }
+  if (isRemovingPrivilegedRole && privilegedCount <= 1) {
+    toast('Debe quedar al menos un owner o admin activo.', false);
+    return;
+  }
+  if (role === 'collector' && !collectorName) {
+    toast('Asigna un cobrador antes de guardar el rol collector.', false);
+    return;
+  }
+
   const { error } = await state.supabase.from('profiles').update({
     role,
     collector_name: collectorName
@@ -625,6 +776,12 @@ function renderClients() {
   }).join('') || '<tr><td colspan="11">No hay clientes para mostrar.</td></tr>';
 }
 
+function clearClientFilters() {
+  ['search-client', 'filter-status', 'filter-collector', 'filter-from', 'filter-to'].forEach(id => {
+    if ($(id)) $(id).value = '';
+  });
+}
+
 function renderClientFilters() {
   const collectors = [...new Set([...state.collectors.map(c => c.name), ...state.clients.map(c => c.cobrador)])].filter(Boolean).sort();
   $('filter-collector').innerHTML = '<option value="">Todos los cobradores</option>' + collectors.map(c => `<option value="${c}">${c}</option>`).join('');
@@ -647,7 +804,10 @@ function renderInvoices() {
       <td>${money(i.amount)}</td>
       <td>${money(i.new_balance)}</td>
       <td>${dayjs(i.paid_at).format('DD/MM/YYYY hh:mm A')}</td>
-      <td><button data-print-invoice="${i.id}">Imprimir</button></td>
+      <td>
+        <button data-print-invoice="${i.id}">Imprimir</button>
+        <button data-whatsapp-invoice="${i.id}" class="success">WhatsApp</button>
+      </td>
     </tr>
   `).join('') || '<tr><td colspan="6">No hay facturas registradas.</td></tr>';
 }
@@ -685,13 +845,20 @@ async function saveLoan(event) {
   const calc = calculateLoan();
   const startDate = $('loan-date').value || today();
   const schedule = Array.from({ length: calc.weeks }, () => ({ cuota: calc.weekly, pagado: 0 }));
+  let total = calc.total;
+  let balance = calc.total;
   if (calc.type === 'redito' && schedule.length) {
-    schedule[schedule.length - 1].cuota = calc.weekly + calc.amount + calc.fee;
     schedule.forEach((week, index) => {
-      week.tipo = index === schedule.length - 1 ? 'redito_capital' : 'redito';
+      week.tipo = 'redito';
+      week.capitalBase = calc.amount + calc.fee;
       week.interes = calc.weekly;
-      week.capital = index === schedule.length - 1 ? calc.amount + calc.fee : 0;
+      week.capital = 0;
+      week.pagoInteres = 0;
+      week.pagoCapital = 0;
+      week.cuota = calc.weekly;
     });
+    total = roundMoney(calc.amount + calc.fee + reditoProjectedTotal(schedule));
+    balance = reditoBalance(schedule);
   }
   const client = {
     tipo: calc.type,
@@ -704,14 +871,16 @@ async function saveLoan(event) {
     semanas: calc.weeks,
     cargo: calc.fee,
     fechaInicio: startDate,
-    total: calc.total,
-    balance: calc.total,
+    total,
+    balance,
     cobrado: 0,
     calendario: schedule,
     historial: []
   };
-  const { error } = await state.supabase.from('clients').insert({ ...clientToRow(client), owner_id: state.user?.id || null });
-  if (error) return toast(error.message, false);
+  const row = { ...clientToRow(client), owner_id: state.user?.id || null };
+  const insertRes = await state.supabase.from('clients').insert(row).select('*').single();
+  if (insertRes.error) return toast(insertRes.error.message, false);
+  if (!insertRes.data?.id) return toast('Supabase no devolvio el prestamo guardado. Revisa las politicas RLS.', false);
   $('loan-form').reset();
   $('loan-type').value = 'san';
   $('loan-interest').value = cfg().defaultInterest;
@@ -719,6 +888,9 @@ async function saveLoan(event) {
   $('loan-fee').value = 0;
   $('loan-date').value = today();
   await loadAll();
+  clearClientFilters();
+  renderClients();
+  activateTab('clients');
   toast('Prestamo guardado');
 }
 
@@ -734,19 +906,27 @@ function openClient(id) {
   const c = state.clients.find(x => x.id === id);
   if (!c) return;
   $('modal-title').textContent = `${c.nombre}${c.cedula ? ' - ' + c.cedula : ''}`;
-  const start = dayjs(c.fechaInicio);
-  $('schedule-grid').innerHTML = c.calendario.map((s, i) => {
+  const redSummary = c.tipo === 'redito' ? reditoPaymentSummary(c) : null;
+  const displaySchedule = redSummary?.schedule || c.calendario;
+  $('schedule-grid').innerHTML = displaySchedule.map((s, i) => {
     const paid = Number(s.pagado || 0) >= Number(s.cuota || 0);
-    const due = start.add(7 + i * 7, 'day').format('DD/MM/YYYY');
+    const due = periodDueDate(c, i).format('DD/MM/YYYY');
+    const amountLabel = c.tipo === 'redito' ? 'Rédito' : 'Cuota';
     return `
       <div class="week-card ${paid ? 'paid' : ''}">
-        <strong>Semana ${i + 1}</strong>
+        <strong>${periodLabel(c, i)}</strong>
         <span>Vence: ${due}</span><br />
-        <span>Cuota: ${money(s.cuota)}</span><br />
+        <span>${amountLabel}: ${money(s.cuota)}</span><br />
         <span>Pagado: ${money(s.pagado)}</span><br />
-        ${paid ? '<span class="badge ok">PAGADA</span>' : `<button data-pay-week="${c.id}:${i}">Pagar</button>`}
+        ${paid ? '<span class="badge ok">PAGADO</span>' : `<button data-pay-week="${c.id}:${i}">Cobrar</button>`}
       </div>`;
-  }).join('');
+  }).join('') + (redSummary ? `
+    <div class="week-card principal-card">
+      <strong>Capital pendiente</strong>
+      <span>${money(redSummary.principalPending)}</span><br />
+      <small>El capital baja solo cuando el cliente paga más que el rédito mensual.</small>
+    </div>
+  ` : '');
   $('payment-history').innerHTML = c.historial.length
     ? c.historial.slice().reverse().map(p => `<div class="history-row"><span>${dayjs(p.fecha).format('DD/MM/YYYY hh:mm A')}</span><strong>${money(p.monto)}</strong></div>`).join('')
     : '<p>Sin pagos registrados.</p>';
@@ -757,6 +937,21 @@ function selectPaymentClient(client) {
   state.selectedClient = client;
   $('payment-search').value = client.nombre;
   $('payment-results').classList.add('hidden');
+
+  if (client.tipo === 'redito') {
+    const summary = reditoPaymentSummary(client);
+    const suggested = summary.interestDue > 0 ? summary.interestDue : Math.min(summary.currentDue || client.balance, client.balance);
+    $('payment-amount').value = Math.min(suggested, client.balance).toFixed(2);
+    $('payment-info').innerHTML = `
+      <div class="redito-payment-help">
+        <span>Rédito actual <strong>${money(summary.interestDue)}</strong></span>
+        <span>Capital pendiente <strong>${money(summary.principalPending)}</strong></span>
+        <small>Si paga más de ${money(summary.interestDue)}, el excedente se abonará a capital.</small>
+      </div>
+    `;
+    return;
+  }
+
   const pending = client.calendario.find(s => Number(s.pagado || 0) < Number(s.cuota || 0));
   const suggested = pending ? Number(pending.cuota) - Number(pending.pagado || 0) : client.balance;
   $('payment-amount').value = Math.min(suggested, client.balance).toFixed(2);
@@ -787,26 +982,135 @@ async function registerPayment() {
   await applyPayment(c, amount);
 }
 
-async function applyPayment(c, amount, queuedAt = null) {
-  let remaining = amount;
-  const schedule = c.calendario.map(s => ({ ...s }));
-  for (const week of schedule) {
-    const due = Number(week.cuota || 0) - Number(week.pagado || 0);
-    if (due <= 0 || remaining <= 0) continue;
-    const applied = Math.min(due, remaining);
-    week.pagado = Number(week.pagado || 0) + applied;
-    remaining -= applied;
+function applyReditoPaymentToSchedule(c, amount) {
+  let remaining = roundMoney(amount);
+  let schedule = recalculateReditoSchedule(c);
+  const activeIndex = schedule.findIndex(week => Number(week.cuota || 0) - Number(week.pagado || 0) > 0.009);
+  const index = activeIndex >= 0 ? activeIndex : schedule.length - 1;
+  const week = schedule[index];
+
+  const dueInterest = Math.max(0, Number(week.interes || 0) - Number(week.pagoInteres || 0));
+  const interestApplied = roundMoney(Math.min(dueInterest, remaining));
+  week.pagoInteres = roundMoney(Number(week.pagoInteres || 0) + interestApplied);
+  remaining = roundMoney(remaining - interestApplied);
+
+  const principalTotal = roundMoney(Number(c.monto || 0) + Number(c.cargo || 0));
+  const principalPaid = roundMoney(schedule.reduce((sum, item) => sum + Number(item.pagoCapital || 0), 0));
+  const principalRemaining = Math.max(0, roundMoney(principalTotal - principalPaid));
+  const capitalApplied = roundMoney(Math.min(principalRemaining, remaining));
+  if (capitalApplied > 0) {
+    week.pagoCapital = roundMoney(Number(week.pagoCapital || 0) + capitalApplied);
+    remaining = roundMoney(remaining - capitalApplied);
+  }
+  week.pagado = roundMoney(Number(week.pagoInteres || 0) + Number(week.pagoCapital || 0));
+
+  schedule = recalculateReditoSchedule(c, schedule, { extendIfCurrentPaid: true });
+  return {
+    schedule,
+    balance: reditoBalance(schedule, c),
+    total: roundMoney(Number(c.monto || 0) + Number(c.cargo || 0) + reditoProjectedTotal(schedule)),
+    pagoInteres: interestApplied,
+    pagoCapital: capitalApplied,
+    sobrante: remaining
+  };
+}
+
+function clientPaymentProgress(client) {
+  const periods = Number(client?.calendario?.length || client?.semanas || 0);
+  const paidPeriods = paidPeriodCount(client || { calendario: [] });
+  return {
+    paidPeriods,
+    remainingPeriods: Math.max(0, periods - paidPeriods),
+    periods,
+    label: periodUnit(client) === 'month' ? 'Meses restantes' : 'Semanas restantes'
+  };
+}
+
+function findInvoiceClient(invoice) {
+  return state.clients.find(c => c.id === invoice?.client_id) || state.clients.find(c => c.nombre === invoice?.client_name) || null;
+}
+
+function invoiceDetails(invoice, client) {
+  if (invoice?.payment_details) return invoice.payment_details;
+  return (client?.historial || []).find(payment => payment.factura === invoice?.number) || {};
+}
+
+function buildReceiptMessage(client, invoice) {
+  const progress = clientPaymentProgress(client);
+  const details = invoiceDetails(invoice, client);
+  const lines = [
+    `*${cfg().businessName} - Recibo de Pago*`,
+    '',
+    `Cliente: ${invoice.client_name || client?.nombre || 'Cliente'}`,
+    `Factura: ${invoice.number}`,
+    `Fecha: ${dayjs(invoice.paid_at).format('DD/MM/YYYY hh:mm A')}`,
+    '',
+    `Monto pagado: *${money(invoice.amount)}*`,
+    `Balance anterior: *${money(invoice.previous_balance)}*`,
+    `Balance pendiente: *${money(invoice.new_balance)}*`
+  ];
+
+  if (Number(details.pagoInteres || 0) > 0 || Number(details.pagoCapital || 0) > 0) {
+    lines.push(`Aplicado a interes: *${money(details.pagoInteres || 0)}*`);
+    lines.push(`Aplicado a capital: *${money(details.pagoCapital || 0)}*`);
   }
 
+  if (progress.periods) {
+    lines.push(`${progress.label}: *${progress.remainingPeriods} de ${progress.periods}*`);
+  }
+
+  lines.push('');
+  lines.push(Number(invoice.new_balance || 0) <= 0 ? 'Prestamo saldado. Gracias por cumplir.' : cfg().receiptFooter);
+  return lines.join('\n');
+}
+
+function sendInvoiceWhatsapp(invoice, client = findInvoiceClient(invoice)) {
+  if (!invoice) return toast('No hay factura para enviar', false);
+  if (!client) return toast('No se encontro el cliente de esta factura', false);
+  const number = sanitizePhone(client.telefono);
+  if (!number) return toast('Cliente sin telefono de WhatsApp', false);
+  const message = encodeURIComponent(buildReceiptMessage(client, invoice));
+  window.open(`https://wa.me/${number}?text=${message}`, '_blank');
+  $('whatsapp-box')?.classList.add('hidden');
+  toast('WhatsApp abierto con recibo listo para enviar');
+}
+
+async function applyPayment(c, amount, queuedAt = null) {
   const paidAt = queuedAt || new Date().toISOString();
   const previousBalance = c.balance;
-  const newBalance = Math.max(0, c.balance - amount);
+  let schedule = c.calendario.map(s => ({ ...s }));
+  let newBalance = Math.max(0, c.balance - amount);
+  let newTotal = c.total;
+  let paymentBreakdown = {};
+
+  if (c.tipo === 'redito') {
+    const result = applyReditoPaymentToSchedule(c, amount);
+    schedule = result.schedule;
+    newBalance = result.balance;
+    newTotal = result.total;
+    paymentBreakdown = {
+      pagoInteres: result.pagoInteres,
+      pagoCapital: result.pagoCapital,
+      sobrante: result.sobrante
+    };
+  } else {
+    let remaining = amount;
+    for (const week of schedule) {
+      const due = Number(week.cuota || 0) - Number(week.pagado || 0);
+      if (due <= 0 || remaining <= 0) continue;
+      const applied = Math.min(due, remaining);
+      week.pagado = Number(week.pagado || 0) + applied;
+      remaining -= applied;
+    }
+  }
+
   const invoiceNumber = `SAN-${dayjs().format('YYYYMMDD-HHmmss')}`;
-  const payments = [...c.historial, { fecha: paidAt, monto: amount, factura: invoiceNumber }];
+  const payments = [...c.historial, { fecha: paidAt, monto: amount, factura: invoiceNumber, ...paymentBreakdown }];
 
   const updateRes = await state.supabase.from('clients').update({
     balance: newBalance,
     collected: c.cobrado + amount,
+    total: newTotal,
     schedule,
     payments
   }).eq('id', c.id);
@@ -820,6 +1124,10 @@ async function applyPayment(c, amount, queuedAt = null) {
     amount,
     previous_balance: previousBalance,
     new_balance: newBalance,
+    payment_details: {
+      loanType: c.tipo,
+      ...paymentBreakdown
+    },
     paid_at: paidAt
   };
   const invoiceRes = await state.supabase.from('invoices').insert(invoice).select().single();
@@ -831,7 +1139,7 @@ async function applyPayment(c, amount, queuedAt = null) {
   $('payment-search').value = '';
   $('payment-amount').value = '';
   $('payment-info').textContent = '';
-  showWhatsappReceipt({ ...c, balance: newBalance }, invoiceRes.data);
+  showWhatsappReceipt({ ...c, balance: newBalance, calendario: schedule }, invoiceRes.data);
   toast('Pago registrado y factura generada');
 }
 
@@ -879,20 +1187,24 @@ async function syncOfflineQueue() {
 function showWhatsappReceipt(client, invoice) {
   $('whatsapp-message').textContent = `Recibo listo para ${client.nombre}`;
   $('whatsapp-box').classList.remove('hidden');
-  $('send-receipt-whatsapp').onclick = () => {
-    const number = sanitizePhone(client.telefono);
-    if (!number) return toast('Cliente sin telefono de WhatsApp', false);
-    const message = encodeURIComponent(
-      `*SAN PRO - Recibo de Pago*\n\nCliente: ${client.nombre}\nFactura: ${invoice.number}\nFecha: ${dayjs(invoice.paid_at).format('DD/MM/YYYY hh:mm A')}\n\nMonto pagado: *${money(invoice.amount)}*\nNuevo balance: *${money(invoice.new_balance)}*\n\nGracias por pagar a tiempo.\nSAN PRO`
-        .replace('Gracias por pagar a tiempo.\nSAN PRO', cfg().receiptFooter)
-    );
-    window.open(`https://wa.me/${number}?text=${message}`, '_blank');
-  };
+  $('send-receipt-whatsapp').onclick = () => sendInvoiceWhatsapp(invoice, client);
 }
 
 function printInvoice(invoice) {
   if (!invoice) return toast('No hay factura para imprimir', false);
   const logo = makeReceiptLogo();
+  const client = findInvoiceClient(invoice);
+  const details = invoiceDetails(invoice, client);
+  const progress = clientPaymentProgress(client);
+  const detailsHtml = Number(details.pagoInteres || 0) > 0 || Number(details.pagoCapital || 0) > 0
+    ? `
+        <div><span>Aplicado a interes</span><strong>${money(details.pagoInteres || 0)}</strong></div>
+        <div><span>Aplicado a capital</span><strong>${money(details.pagoCapital || 0)}</strong></div>
+      `
+    : '';
+  const weeksHtml = progress.periods
+    ? `<p>${progress.label}: <strong>${progress.remainingPeriods} de ${progress.periods}</strong></p>`
+    : '';
   $('print-area').innerHTML = `
     <section class="receipt-page">
       <header>
@@ -915,7 +1227,9 @@ function printInvoice(invoice) {
         <div><span>Monto pagado</span><strong>${money(invoice.amount)}</strong></div>
         <div><span>Balance anterior</span><strong>${money(invoice.previous_balance)}</strong></div>
         <div><span>Nuevo balance</span><strong>${money(invoice.new_balance)}</strong></div>
+        ${detailsHtml}
       </div>
+      ${weeksHtml}
       <footer>${cfg().receiptFooter}</footer>
     </section>
   `;
@@ -1293,7 +1607,7 @@ function bindEvents() {
     $(id).addEventListener('change', renderClients);
   });
   $('clear-filters').onclick = () => {
-    ['search-client', 'filter-status', 'filter-collector', 'filter-from', 'filter-to'].forEach(id => $(id).value = '');
+    clearClientFilters();
     renderClients();
   };
 
@@ -1317,7 +1631,8 @@ function bindEvents() {
         $('client-modal').classList.add('hidden');
         $$('.tabs button[data-tab="payments"]')[0].click();
         selectPaymentClient(c);
-        const week = c.calendario[Number(idx)];
+        const schedule = c.tipo === 'redito' ? reditoPaymentSummary(c).schedule : c.calendario;
+        const week = schedule[Number(idx)];
         $('payment-amount').value = Math.max(0, Number(week.cuota) - Number(week.pagado || 0)).toFixed(2);
       }
     }
@@ -1337,6 +1652,8 @@ function bindEvents() {
     if (removeCollectorId) removeCollector(removeCollectorId).catch(err => toast(err.message, false));
     const printId = e.target.closest('[data-print-invoice]')?.dataset.printInvoice;
     if (printId) printInvoice(state.invoices.find(i => i.id === printId));
+    const whatsappInvoiceId = e.target.closest('[data-whatsapp-invoice]')?.dataset.whatsappInvoice;
+    if (whatsappInvoiceId) sendInvoiceWhatsapp(state.invoices.find(i => i.id === whatsappInvoiceId));
     const saveUserId = e.target.closest('[data-save-user]')?.dataset.saveUser;
     if (saveUserId) saveUserProfile(saveUserId).catch(err => toast(err.message, false));
   });

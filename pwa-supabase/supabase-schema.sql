@@ -58,6 +58,7 @@ create table if not exists public.invoices (
   amount numeric(12,2) not null,
   previous_balance numeric(12,2) not null,
   new_balance numeric(12,2) not null,
+  payment_details jsonb not null default '{}'::jsonb,
   paid_at timestamptz not null default now()
 );
 
@@ -100,6 +101,9 @@ $$;
 
 alter table public.invoices
   add column if not exists owner_id uuid references auth.users(id) on delete cascade;
+
+alter table public.invoices
+  add column if not exists payment_details jsonb not null default '{}'::jsonb;
 
 alter table public.licenses
   add column if not exists owner_id uuid references auth.users(id) on delete cascade;
@@ -176,7 +180,14 @@ set search_path = public
 as $$
 begin
   insert into public.profiles (id, full_name, role)
-  values (new.id, coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)), 'owner')
+  values (
+    new.id,
+    coalesce(new.raw_user_meta_data->>'full_name', split_part(new.email, '@', 1)),
+    case
+      when exists (select 1 from public.profiles) then 'viewer'
+      else 'owner'
+    end
+  )
   on conflict (id) do nothing;
   return new;
 end;
@@ -222,8 +233,6 @@ create policy "sanpro_profiles_read" on public.profiles
 for select using (id = auth.uid() or auth.uid() is not null);
 
 drop policy if exists "sanpro_profiles_update_self" on public.profiles;
-create policy "sanpro_profiles_update_self" on public.profiles
-for update using (id = auth.uid()) with check (id = auth.uid());
 
 drop policy if exists "sanpro_profiles_manage" on public.profiles;
 create policy "sanpro_profiles_manage" on public.profiles

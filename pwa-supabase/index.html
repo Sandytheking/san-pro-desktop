@@ -199,7 +199,7 @@
       <form id="loan-form" class="form-grid">
         <select id="loan-type" required>
           <option value="san">Tipo San - cuota fija</option>
-          <option value="redito">Tipo Redito - interes + capital final</option>
+          <option value="redito">Tipo Redito - interes mensual</option>
         </select>
         <input id="loan-name" required placeholder="Nombre completo" autocomplete="off" />
         <input id="loan-phone" placeholder="Telefono WhatsApp" autocomplete="off" />
@@ -207,15 +207,15 @@
         <select id="loan-collector" required></select>
         <input id="loan-amount" required type="number" min="0" step="0.01" placeholder="Monto prestado" />
         <input id="loan-interest" required type="number" min="0" step="0.01" value="30" placeholder="Interes %" />
-        <input id="loan-weeks" required type="number" min="1" value="13" placeholder="Semanas" />
+        <input id="loan-weeks" required type="number" min="1" value="13" placeholder="Semanas / meses" />
         <input id="loan-fee" type="number" min="0" step="0.01" value="0" placeholder="Cargo contrato" />
         <input id="loan-date" type="date" required />
       </form>
       <div class="stats compact">
-        <article><span>Total a cobrar</span><strong id="calc-total">$0.00</strong></article>
+        <article><span id="calc-total-label">Total a cobrar</span><strong id="calc-total">$0.00</strong></article>
         <article><span id="calc-period-label">Cuota semanal</span><strong id="calc-weekly">$0.00</strong></article>
         <article><span>Entregado</span><strong id="calc-delivered">$0.00</strong></article>
-        <article><span>Ganancia</span><strong id="calc-profit">$0.00</strong></article>
+        <article><span id="calc-profit-label">Ganancia</span><strong id="calc-profit">$0.00</strong></article>
       </div>
       <p id="loan-type-help" class="muted loan-help">Tipo San reparte capital e interes en cuotas fijas.</p>
       <button form="loan-form" class="success">Guardar prestamo</button>
@@ -229,7 +229,7 @@
           <div id="payment-results" class="results hidden"></div>
         </div>
         <input id="payment-amount" type="number" min="0" step="0.01" placeholder="Monto pagado" />
-        <span id="payment-info"></span>
+        <div id="payment-info"></div>
         <button id="register-payment">Registrar pago</button>
       </div>
       <div id="whatsapp-box" class="notice hidden">
@@ -321,7 +321,7 @@
           <input id="setting-monthly-goal" type="number" min="0" step="0.01" placeholder="0.00" />
           <label>Interes por defecto (%)</label>
           <input id="setting-default-interest" type="number" min="0" step="0.01" placeholder="30" />
-          <label>Semanas por defecto</label>
+          <label>Plazo por defecto</label>
           <input id="setting-default-weeks" type="number" min="1" placeholder="13" />
         </article>
         <article class="panel">

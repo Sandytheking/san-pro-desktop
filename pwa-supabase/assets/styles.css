@@ -580,6 +580,26 @@ td.actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
   margin: 16px 0;
 }
 
+.redito-payment-help {
+  display: grid;
+  gap: 4px;
+  min-width: 240px;
+  padding: 10px 12px;
+  border: 1px solid #2563eb;
+  border-radius: 8px;
+  background: #0f1f3a;
+}
+.redito-payment-help span {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: #dbeafe;
+  font-size: 13px;
+}
+.redito-payment-help small {
+  color: #bfdbfe;
+}
+
 .tags { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
 .tag {
   display: inline-flex;
@@ -635,6 +655,15 @@ td.actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
   padding: 12px;
 }
 .week-card.paid { border-color: #16a34a; }
+.week-card.principal-card {
+  border-color: #0d9488;
+  background: #0f2f2f;
+}
+.week-card.principal-card small {
+  display: block;
+  margin-top: 8px;
+  color: #99f6e4;
+}
 .history { display: grid; gap: 8px; }
 .history-row {
   display: flex;
