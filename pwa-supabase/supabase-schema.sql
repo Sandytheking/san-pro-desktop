@@ -262,6 +262,10 @@ begin
     raise exception 'Permisos insuficientes';
   end if;
 
+  if p_amount > v_client.balance then
+    raise exception 'El monto no puede ser mayor al balance pendiente';
+  end if;
+
   update public.clients
   set balance = p_new_balance, collected = p_new_collected, total = p_new_total, schedule = p_new_schedule, payments = p_new_payments
   where id = p_client_id;
@@ -380,7 +384,20 @@ as $$
     and target_owner = public.current_business_owner_id();
 $$;
 
-create or replace function public.can_access_client(target_owner uuid, target_collector text)
+create or replace function public.current_collector_id()
+returns uuid
+language sql
+security definer
+set search_path = public
+as $$
+  select collector_id
+  from public.profiles
+  where id = auth.uid()
+    and active = true
+  limit 1;
+$$;
+
+create or replace function public.can_access_client(target_owner uuid, target_collector_id uuid)
 returns boolean
 language sql
 security definer
@@ -391,7 +408,7 @@ as $$
       public.current_user_role() in ('owner', 'admin', 'viewer')
       or (
         public.current_user_role() = 'collector'
-        and (target_collector = public.current_collector_name() or target_collector is null)
+        and (target_collector_id = public.current_collector_id() or target_collector_id is null)
       )
     );
 $$;
@@ -666,7 +683,7 @@ drop policy if exists "sanpro_clients_insert" on public.clients;
 drop policy if exists "sanpro_clients_update" on public.clients;
 drop policy if exists "sanpro_clients_delete" on public.clients;
 create policy "sanpro_clients_select" on public.clients
-for select using (public.can_access_client(owner_id, collector));
+for select using (public.can_access_client(owner_id, collector_id));
 create policy "sanpro_clients_insert" on public.clients
 for insert with check (
   public.same_business(owner_id)
@@ -676,8 +693,8 @@ for insert with check (
   )
 );
 create policy "sanpro_clients_update" on public.clients
-for update using (public.can_access_client(owner_id, collector))
-with check (public.can_access_client(owner_id, collector));
+for update using (public.can_access_client(owner_id, collector_id))
+with check (public.can_access_client(owner_id, collector_id));
 create policy "sanpro_clients_delete" on public.clients
 for delete using (public.can_manage_business() and public.same_business(owner_id));
 
@@ -690,7 +707,7 @@ for select using (
   and exists (
     select 1 from public.clients c
     where c.id = client_id
-      and public.can_access_client(c.owner_id, c.collector)
+      and public.can_access_client(c.owner_id, c.collector_id)
   )
 );
 create policy "sanpro_invoices_insert" on public.invoices
@@ -700,7 +717,7 @@ for insert with check (
   and exists (
     select 1 from public.clients c
     where c.id = client_id
-      and public.can_access_client(c.owner_id, c.collector)
+      and public.can_access_client(c.owner_id, c.collector_id)
   )
 );
 

@@ -15,7 +15,8 @@ const state = {
   authMode: 'login',
   profiles: [],
   plan: null,
-  offlineQueue: []
+  offlineQueue: [],
+  showArchive: false
 };
 
 const defaults = {
@@ -477,10 +478,17 @@ function reditoPaymentSummary(client) {
 async function loadAll() {
   setSyncStatus(navigator.onLine ? 'Sincronizando...' : 'Offline', navigator.onLine);
   let clientsQuery = state.supabase.from('clients').select('*').order('created_at', { ascending: false });
+  if (!state.showArchive) {
+    clientsQuery = clientsQuery.gt('balance', 0);
+  }
   let collectorsQuery = state.supabase.from('collectors').select('*').order('name');
-  const invoicesQuery = state.supabase.from('invoices').select('*').order('paid_at', { ascending: false }).limit(100);
-  if (state.profile?.role === 'collector' && state.profile.collector_name) {
-    clientsQuery = clientsQuery.eq('collector', state.profile.collector_name);
+  let invoicesQuery = state.supabase.from('invoices').select('*').order('paid_at', { ascending: false }).limit(100);
+  if (state.profile?.role === 'collector') {
+    if (state.profile.collector_id) {
+      clientsQuery = clientsQuery.eq('collector_id', state.profile.collector_id);
+    } else if (state.profile.collector_name) {
+      clientsQuery = clientsQuery.eq('collector', state.profile.collector_name);
+    }
     collectorsQuery = collectorsQuery.eq('name', state.profile.collector_name);
   }
   const [clientsRes, collectorsRes, invoicesRes] = await Promise.all([clientsQuery, collectorsQuery, invoicesQuery]);
@@ -816,16 +824,32 @@ function renderClientFilters() {
   const collectors = [...new Set([...state.collectors.map(c => c.name), ...state.clients.map(c => c.cobrador)])].filter(Boolean).sort();
   if (state.profile?.role === 'collector') {
     const assigned = state.profile.collector_name || collectors[0] || '';
-    $('filter-collector').innerHTML = assigned ? `<option value="${assigned}">${assigned}</option>` : '<option value="">Sin cobrador asignado</option>';
+    $('filter-collector').innerHTML = assigned ? html`<option value="${assigned}">${assigned}</option>` : '<option value="">Sin cobrador asignado</option>';
     $('filter-collector').value = assigned;
-    $('loan-collector').innerHTML = assigned ? `<option value="${assigned}">${assigned}</option>` : '<option value="">Sin cobrador asignado</option>';
+    $('loan-collector').innerHTML = assigned ? html`<option value="${assigned}">${assigned}</option>` : '<option value="">Sin cobrador asignado</option>';
     $('loan-collector').value = assigned;
-    return;
+  } else {
+    $('filter-collector').innerHTML = '<option value="">Todos los cobradores</option>' + collectors.map(c => html`<option value="${c}">${c}</option>`).join('');
+    $('loan-collector').innerHTML = collectors.length
+      ? collectors.map(c => html`<option value="${c}">${c}</option>`).join('')
+      : '<option value="Cobrador 1">Cobrador 1</option>';
   }
-  $('filter-collector').innerHTML = '<option value="">Todos los cobradores</option>' + collectors.map(c => `<option value="${c}">${c}</option>`).join('');
-  $('loan-collector').innerHTML = collectors.length
-    ? collectors.map(c => `<option value="${c}">${c}</option>`).join('')
-    : '<option value="Cobrador 1">Cobrador 1</option>';
+
+  if (!$('toggle-archive-wrapper')) {
+    const wrapper = document.createElement('label');
+    wrapper.id = 'toggle-archive-wrapper';
+    wrapper.style.display = 'flex';
+    wrapper.style.alignItems = 'center';
+    wrapper.style.gap = '8px';
+    wrapper.style.marginTop = '10px';
+    wrapper.innerHTML = `<input type="checkbox" id="toggle-archive" ${state.showArchive ? 'checked' : ''}> Mostrar saldados (Historial completo)`;
+    wrapper.querySelector('input').onchange = async (e) => {
+      state.showArchive = e.target.checked;
+      await loadAll();
+    };
+    const filterSection = $('filter-collector').parentElement;
+    if (filterSection) filterSection.appendChild(wrapper);
+  }
 }
 
 function renderCollectors() {
@@ -1022,6 +1046,8 @@ async function registerPayment() {
   const amount = Number($('payment-amount').value || 0);
   if (!c) return toast('Selecciona un cliente', false);
   if (amount <= 0) return toast('Monto invalido', false);
+  if (amount > c.balance) return toast(`El cliente solo debe ${money(c.balance)}. No puedes cobrar de más.`, false);
+  
   if (!navigator.onLine) {
     queueOfflinePayment(c, amount);
     return;
