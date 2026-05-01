@@ -170,9 +170,12 @@ body[data-role="collector"] .tabs button {
 
 body[data-role="collector"] .tabs button[data-tab="dashboard"],
 body[data-role="collector"] .tabs button[data-tab="clients"],
-body[data-role="collector"] .tabs button[data-tab="new-loan"],
 body[data-role="collector"] .tabs button[data-tab="payments"],
 body[data-role="collector"] .tabs button[data-tab="invoices"] {
+  display: block;
+}
+
+body[data-role="collector"][data-collector-assigned="true"] .tabs button[data-tab="new-loan"] {
   display: block;
 }
 
@@ -915,6 +918,7 @@ td.actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
   }
   body[data-role="collector"] .tabs button[data-tab="dashboard"],
   body[data-role="collector"] .tabs button[data-tab="clients"],
+  body[data-role="collector"][data-collector-assigned="true"] .tabs button[data-tab="new-loan"],
   body[data-role="collector"] .tabs button[data-tab="payments"],
   body[data-role="collector"] .tabs button[data-tab="collector-mobile"] {
     display: block;

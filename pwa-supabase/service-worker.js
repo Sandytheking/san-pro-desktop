@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sanpro-pwa-v13';
+const CACHE_NAME = 'sanpro-pwa-v16';
 const APP_SHELL = [
   './',
   './index.html',
@@ -35,16 +35,25 @@ self.addEventListener('fetch', event => {
   const isAppConfig = isAppOrigin && url.pathname.startsWith('/api/');
   const isSupabase = url.hostname.includes('.supabase.co');
   const isNavigation = event.request.mode === 'navigate';
+  const isVersionedShellAsset = isAppOrigin && (
+    isNavigation ||
+    url.pathname === '/' ||
+    url.pathname.endsWith('.html') ||
+    url.pathname.endsWith('.js') ||
+    url.pathname.endsWith('.css') ||
+    url.pathname.endsWith('.webmanifest')
+  );
 
   if (isAppConfig || isSupabase) {
     event.respondWith(fetch(event.request));
     return;
   }
 
-  if (isNavigation) {
+  if (isVersionedShellAsset) {
     event.respondWith(
       fetch(event.request)
         .then(response => {
+          if (!response || response.status !== 200) return response;
           const clone = response.clone();
           caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
           return response;

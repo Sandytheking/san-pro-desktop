@@ -51,10 +51,12 @@ const roundMoney = n => Math.round((Number(n || 0) + Number.EPSILON) * 100) / 10
 const makeInviteCode = () => crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase();
 const teamOwnerId = () => state.profile?.business_owner_id || state.profile?.id || state.user?.id || null;
 const offlineQueueKey = () => `sanpro_offline_queue:${teamOwnerId() || 'local'}`;
-const collectorTabs = ['dashboard', 'clients', 'new-loan', 'payments', 'invoices', 'collector-mobile'];
+const collectorTabs = ['dashboard', 'clients', 'payments', 'invoices', 'collector-mobile'];
 
 function canUseTab(tabId) {
-  return state.profile?.role !== 'collector' || collectorTabs.includes(tabId);
+  if (state.profile?.role !== 'collector') return true;
+  if (tabId === 'new-loan') return Boolean(state.profile.collector_name);
+  return collectorTabs.includes(tabId);
 }
 
 function toast(message, ok = true) {
@@ -880,6 +882,11 @@ async function saveLoan(event) {
     toast('Tu usuario no tiene un cobrador asignado. Pide al admin que lo asigne.', false);
     return;
   }
+  if (state.profile?.role !== 'collector' && !$('loan-collector').value) {
+    toast('Crea o selecciona un cobrador antes de guardar el prestamo.', false);
+    activateTab('collectors');
+    return;
+  }
   const calc = calculateLoan();
   const startDate = $('loan-date').value || today();
   const schedule = Array.from({ length: calc.weeks }, () => ({ cuota: calc.weekly, pagado: 0 }));
@@ -1384,18 +1391,23 @@ function renderClients() {
 function renderClientFilters() {
   const collectors = [...new Set([...state.collectors.map(c => c.name), ...state.clients.map(c => c.cobrador)])].filter(Boolean).sort();
   const option = name => `<option value="${attr(name)}">${escapeHtml(name)}</option>`;
+  $('loan-collector').disabled = false;
+  $('loan-collector').required = true;
   if (state.profile?.role === 'collector') {
-    const assigned = state.profile.collector_name || collectors[0] || '';
+    const assigned = state.profile.collector_name || '';
     $('filter-collector').innerHTML = assigned ? option(assigned) : '<option value="">Sin cobrador asignado</option>';
     $('filter-collector').value = assigned;
     $('loan-collector').innerHTML = assigned ? option(assigned) : '<option value="">Sin cobrador asignado</option>';
     $('loan-collector').value = assigned;
+    $('loan-collector').required = false;
+    $('loan-collector').disabled = !assigned;
     return;
   }
   $('filter-collector').innerHTML = '<option value="">Todos los cobradores</option>' + collectors.map(option).join('');
+  $('loan-collector').required = collectors.length > 0;
   $('loan-collector').innerHTML = collectors.length
     ? collectors.map(option).join('')
-    : '<option value="Cobrador 1">Cobrador 1</option>';
+    : '<option value="">Crea un cobrador primero</option>';
 }
 
 function renderCollectors() {
@@ -1794,6 +1806,7 @@ async function loadProfile() {
   state.profile = data;
   $('user-role').textContent = data.role;
   document.body.dataset.role = data.role;
+  document.body.dataset.collectorAssigned = data.collector_name ? 'true' : 'false';
   if ($('business-invite-code')) $('business-invite-code').textContent = data.invite_code || '---';
   return data;
 }
@@ -2067,7 +2080,11 @@ function bindEvents() {
 }
 
 if ('serviceWorker' in navigator) {
-  window.addEventListener('load', () => navigator.serviceWorker.register('./service-worker.js').catch(() => {}));
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./service-worker.js')
+      .then(registration => registration.update())
+      .catch(() => {});
+  });
 }
 
 bindEvents();
