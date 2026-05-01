@@ -48,6 +48,7 @@ const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({
 const attr = value => escapeHtml(value);
 const today = () => dayjs().format('YYYY-MM-DD');
 const roundMoney = n => Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
+const html = (strings, ...values) => String.raw({ raw: strings }, ...values.map(v => typeof v === 'string' ? v.replace(/[&<>'"]/g, t => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[t] || t)) : v));
 const makeInviteCode = () => crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase();
 const teamOwnerId = () => state.profile?.business_owner_id || state.profile?.id || state.user?.id || null;
 const offlineQueueKey = () => `sanpro_offline_queue:${teamOwnerId() || 'local'}`;
@@ -303,6 +304,7 @@ function clientToRow(c) {
     phone: c.telefono,
     document_id: c.cedula,
     collector: c.cobrador,
+    collector_id: state.collectors.find(col => col.name === c.cobrador)?.id || null,
     amount: c.monto,
     interest: c.interes,
     weeks: c.semanas,
@@ -354,20 +356,20 @@ function calculateLoan() {
   const interest = Number($('loan-interest').value || 0);
   const weeks = Math.max(1, Number($('loan-weeks').value || 1));
   const fee = Number($('loan-fee').value || 0);
-  const principal = amount + fee;
+  const principal = amount;
   const periodInterest = roundMoney(principal * interest / 100);
   const total = type === 'redito'
     ? principal + (periodInterest * weeks)
-    : amount + (amount * interest / 100) + fee;
+    : principal + (principal * interest / 100);
   const weekly = type === 'redito' ? periodInterest : total / weeks;
-  return { type, amount, interest, weeks, fee, total, weekly, profit: total - amount };
+  return { type, amount, interest, weeks, fee, total, weekly, profit: total - (amount - fee) };
 }
 
 function updatePreview() {
   const calc = calculateLoan();
   $('calc-total').textContent = money(calc.total);
   $('calc-weekly').textContent = money(calc.weekly);
-  $('calc-delivered').textContent = money(calc.amount);
+  $('calc-delivered').textContent = money(calc.amount - calc.fee);
   $('calc-profit').textContent = money(calc.profit);
   $('calc-total-label').textContent = calc.type === 'redito' ? 'Total proyectado' : 'Total a cobrar';
   $('calc-period-label').textContent = calc.type === 'redito' ? 'Redito mensual' : 'Cuota semanal';
@@ -578,13 +580,13 @@ function renderPremiumDashboard() {
     .map(c => ({ client: c, due: nextDueDate(c), status: loanStatus(c) }))
     .sort((a, b) => a.due.valueOf() - b.due.valueOf())
     .slice(0, 6);
-  $('upcoming-list').innerHTML = upcoming.map(item => `
+  $('upcoming-list').innerHTML = upcoming.map(item => html`
     <div class="timeline-item">
-      <span class="dot ${attr(item.status.cls)}"></span>
+      <span class="dot ${item.status.cls}"></span>
       <div><strong>${item.client.nombre}</strong><small>${item.client.cobrador} · ${item.due.format('DD/MM/YYYY')}</small></div>
       <b>${money(item.client.balance)}</b>
     </div>
-  `).join('') || '<p class="muted">No hay cobros pendientes.</p>';
+  `).join('') || '<p class="muted">No hay cobros pendientes.</p>';;
 }
 
 function renderAnalytics() {
@@ -607,7 +609,7 @@ function renderCollectorPerformance() {
   const rows = [...groups.values()].sort((a, b) => b.collected - a.collected);
   const max = Math.max(1, ...rows.map(r => r.collected));
   $('collector-count').textContent = `${rows.length} cobradores`;
-  $('collector-performance').innerHTML = rows.map(r => `
+  $('collector-performance').innerHTML = rows.map(r => html`
     <div class="bar-row">
       <div><strong>${r.name}</strong><small>${money(r.collected)} cobrado · ${r.late} morosos</small></div>
       <div class="bar-track"><span style="width:${Math.round((r.collected / max) * 100)}%"></span></div>
@@ -631,18 +633,18 @@ async function loadProfiles() {
 function renderUsers() {
   if (!$('users-body')) return;
   const collectors = [...new Set(state.collectors.map(c => c.name))].filter(Boolean).sort();
-  $('users-body').innerHTML = state.profiles.map(p => `
+  $('users-body').innerHTML = state.profiles.map(p => html`
     <tr>
       <td>${p.full_name || p.id}</td>
       <td>
         <select data-user-role="${p.id}">
-          ${['owner', 'admin', 'collector', 'viewer'].map(role => `<option value="${role}" ${p.role === role ? 'selected' : ''}>${role}</option>`).join('')}
+          ${['owner', 'admin', 'collector', 'viewer'].map(role => html`<option value="${role}" ${p.role === role ? 'selected' : ''}>${role}</option>`).join('')}
         </select>
       </td>
       <td>
         <select data-user-collector="${p.id}">
           <option value="">Sin asignar</option>
-          ${collectors.map(name => `<option value="${name}" ${p.collector_name === name ? 'selected' : ''}>${name}</option>`).join('')}
+          ${collectors.map(name => html`<option value="${name}" ${p.collector_name === name ? 'selected' : ''}>${name}</option>`).join('')}
         </select>
       </td>
       <td>${p.active ? 'Activo' : 'Inactivo'}</td>
@@ -759,7 +761,7 @@ function renderSmartAlerts() {
   if (noCollector) alerts.push({ level: 'warn', text: `${noCollector} clientes no tienen cobrador definido.` });
   if (!alerts.length) alerts.push({ level: 'ok', text: 'La cartera se ve estable por ahora.' });
   $('alerts-count').textContent = alerts.length;
-  $('smart-alerts').innerHTML = alerts.map(a => `<div class="alert ${a.level}">${a.text}</div>`).join('');
+  $('smart-alerts').innerHTML = alerts.map(a => html`<div class="alert ${a.level}">${a.text}</div>`).join('');
 }
 
 function filteredClients() {
@@ -784,7 +786,7 @@ function renderClients() {
   const canDelete = ['owner', 'admin'].includes(state.profile?.role);
   $('clients-body').innerHTML = rows.map((c, index) => {
     const st = loanStatus(c);
-    return `
+    return html`
       <tr>
         <td>${index + 1}</td>
         <td>${c.nombre}</td>
@@ -798,7 +800,7 @@ function renderClients() {
         <td><span class="badge ${st.cls}">${st.text}</span></td>
         <td class="actions-cell">
           <button data-view="${c.id}">Ver</button>
-          ${canDelete ? `<button class="danger" data-delete="${c.id}">Eliminar</button>` : ''}
+          ${canDelete ? html`<button class="danger" data-delete="${c.id}">Eliminar</button>` : ''}
         </td>
       </tr>`;
   }).join('') || '<tr><td colspan="11">No hay clientes para mostrar.</td></tr>';
@@ -1149,26 +1151,23 @@ async function applyPayment(c, amount, queuedAt = null) {
     }
   }
 
-  const paymentId = crypto.randomUUID();
-  const invoiceNumber = `SAN-${dayjs().format('YYYYMMDD-HHmmss')}-${paymentId.slice(0, 6).toUpperCase()}`;
+  const invoiceNumber = `SAN-${dayjs().format('YYYYMMDD-HHmmss')}-${crypto.randomUUID().split('-')[0]}`;
   const payments = [...c.historial, { fecha: paidAt, monto: amount, factura: invoiceNumber, ...paymentBreakdown }];
 
-  const invoiceRes = await state.supabase.rpc('register_payment', {
+  const rpcPayload = {
     p_client_id: c.id,
-    p_payment_id: paymentId,
-    p_invoice_number: invoiceNumber,
     p_amount: amount,
+    p_invoice_number: invoiceNumber,
+    p_payment_details: { loanType: c.tipo, ...paymentBreakdown },
     p_new_balance: newBalance,
+    p_new_collected: c.cobrado + amount,
     p_new_total: newTotal,
-    p_schedule: schedule,
-    p_payments: payments,
-    p_payment_details: {
-      loanType: c.tipo,
-      ...paymentBreakdown
-    },
-    p_paid_at: paidAt,
-    p_expected_updated_at: c.updatedAt || null
-  });
+    p_new_schedule: schedule,
+    p_new_payments: payments,
+    p_queued_at: paidAt
+  };
+
+  const invoiceRes = await state.supabase.rpc('register_payment', rpcPayload);
   if (invoiceRes.error) return toast(invoiceRes.error.message, false);
 
   state.lastInvoice = Array.isArray(invoiceRes.data) ? invoiceRes.data[0] : invoiceRes.data;

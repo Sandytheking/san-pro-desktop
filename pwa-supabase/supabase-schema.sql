@@ -143,6 +143,32 @@ create unique index if not exists invoices_owner_number_unique
   on public.invoices (owner_id, number)
   where owner_id is not null;
 
+alter table public.clients
+  add column if not exists collector_id uuid references public.collectors(id) on delete set null;
+
+alter table public.profiles
+  add column if not exists collector_id uuid references public.collectors(id) on delete set null;
+
+create table if not exists public.invites (
+  id uuid primary key default gen_random_uuid(),
+  owner_id uuid references auth.users(id) on delete cascade,
+  email text not null,
+  role text not null default 'collector' check (role in ('admin', 'collector', 'viewer')),
+  status text not null default 'pending' check (status in ('pending', 'used', 'expired')),
+  expires_at timestamptz not null default now() + interval '7 days',
+  created_at timestamptz not null default now()
+);
+
+-- update collector_id based on collector name if missing
+update public.clients c
+set collector_id = (select id from public.collectors col where col.name = c.collector and col.owner_id = c.owner_id limit 1)
+where c.collector_id is null;
+
+update public.profiles p
+set collector_id = (select id from public.collectors col where col.name = p.collector_name and col.owner_id = p.business_owner_id limit 1)
+where p.collector_id is null and p.collector_name is not null;
+
+
 create unique index if not exists invoices_owner_payment_unique
   on public.invoices (owner_id, payment_id)
   where owner_id is not null and payment_id is not null;
@@ -204,6 +230,47 @@ as $$
 begin
   new.updated_at = now();
   return new;
+end;
+$$;
+
+create or replace function public.register_payment(
+  p_client_id uuid,
+  p_amount numeric,
+  p_invoice_number text,
+  p_payment_details jsonb,
+  p_new_balance numeric,
+  p_new_collected numeric,
+  p_new_total numeric,
+  p_new_schedule jsonb,
+  p_new_payments jsonb,
+  p_queued_at timestamptz default now()
+) returns jsonb
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  v_client public.clients%rowtype;
+  v_invoice public.invoices%rowtype;
+  v_owner_id uuid;
+begin
+  select * into v_client from public.clients where id = p_client_id for update;
+  if not found then raise exception 'Cliente no encontrado'; end if;
+  v_owner_id := v_client.owner_id;
+
+  if not public.can_write_business() or not public.same_business(v_owner_id) then
+    raise exception 'Permisos insuficientes';
+  end if;
+
+  update public.clients
+  set balance = p_new_balance, collected = p_new_collected, total = p_new_total, schedule = p_new_schedule, payments = p_new_payments
+  where id = p_client_id;
+
+  insert into public.invoices (owner_id, number, client_id, client_name, amount, previous_balance, new_balance, payment_details, paid_at)
+  values (v_owner_id, p_invoice_number, p_client_id, v_client.name, p_amount, v_client.balance, p_new_balance, p_payment_details, p_queued_at)
+  returning * into v_invoice;
+
+  return row_to_json(v_invoice)::jsonb;
 end;
 $$;
 
@@ -324,7 +391,7 @@ as $$
       public.current_user_role() in ('owner', 'admin', 'viewer')
       or (
         public.current_user_role() = 'collector'
-        and target_collector = public.current_collector_name()
+        and (target_collector = public.current_collector_name() or target_collector is null)
       )
     );
 $$;
@@ -565,14 +632,17 @@ create policy "sanpro_profiles_insert_self" on public.profiles
 for insert with check (id = auth.uid() and business_owner_id = auth.uid());
 create policy "sanpro_profiles_manage" on public.profiles
 for update using (
-  public.can_manage_profiles()
+  public.can_manage_profiles() 
   and business_owner_id = public.current_business_owner_id()
-  and (public.current_user_role() = 'owner' or role <> 'owner')
+  and (
+    -- Only owners can modify owners
+    (role = 'owner' and public.current_user_role() = 'owner')
+    or (role != 'owner')
+  )
 )
 with check (
-  public.can_manage_profiles()
+  public.can_manage_profiles() 
   and business_owner_id = public.current_business_owner_id()
-  and (public.current_user_role() = 'owner' or role <> 'owner')
 );
 
 drop policy if exists "sanpro_collectors_all" on public.collectors;
@@ -602,10 +672,7 @@ for insert with check (
   public.same_business(owner_id)
   and (
     public.can_manage_business()
-    or (
-      public.current_user_role() = 'collector'
-      and collector = public.current_collector_name()
-    )
+    or public.current_user_role() = 'collector'
   )
 );
 create policy "sanpro_clients_update" on public.clients
