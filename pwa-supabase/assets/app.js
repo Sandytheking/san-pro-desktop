@@ -1388,27 +1388,54 @@ async function notifyDuePayments() {
 
 async function verifyLicense() {
   const installationId = getInstallationId();
+  const ownerId = teamOwnerId();
   $('installation-id').textContent = installationId;
-  const { data, error } = await state.supabase.from('licenses').select('*').eq('installation_id', installationId).maybeSingle();
+  const { data, error } = await state.supabase
+    .from('licenses')
+    .select('*')
+    .eq('owner_id', ownerId)
+    .eq('installation_id', installationId)
+    .maybeSingle();
   if (error) throw error;
-  if (!data) {
+  let license = data;
+  if (!license) {
     const trialUntil = dayjs().add(30, 'day').format('YYYY-MM-DD');
-    const insert = await state.supabase.from('licenses').insert({ installation_id: installationId, valid_until: trialUntil, status: 'trial', owner_id: teamOwnerId() });
-    if (insert.error) throw insert.error;
+    const insert = await state.supabase
+      .from('licenses')
+      .insert({ installation_id: installationId, valid_until: trialUntil, status: 'trial', owner_id: ownerId })
+      .select()
+      .single();
+    if (insert.error) {
+      if (insert.error.code !== '23505') throw insert.error;
+      const existing = await state.supabase
+        .from('licenses')
+        .select('*')
+        .eq('owner_id', ownerId)
+        .eq('installation_id', installationId)
+        .maybeSingle();
+      if (existing.error) throw existing.error;
+      license = existing.data;
+    } else {
+      license = insert.data;
+    }
+  }
+  if (!license) {
+    const trialUntil = dayjs().add(30, 'day').format('YYYY-MM-DD');
     toast(`Modo prueba activo hasta ${dayjs(trialUntil).format('DD/MM/YYYY')}`);
     return true;
   }
-  if (dayjs().isAfter(dayjs(data.valid_until).endOf('day'))) {
+  if (dayjs().isAfter(dayjs(license.valid_until).endOf('day'))) {
     showScreen('license-screen');
     return false;
   }
-  if (data.status === 'trial') toast(`Modo prueba activo hasta ${dayjs(data.valid_until).format('DD/MM/YYYY')}`);
+  if (license.status === 'trial') toast(`Modo prueba activo hasta ${dayjs(license.valid_until).format('DD/MM/YYYY')}`);
   return true;
 }
 
 async function activateLicense() {
   const key = $('license-key').value.trim();
   const installationId = getInstallationId();
+  const ownerId = teamOwnerId();
   const tail = installationId.replaceAll('-', '').slice(0, 8);
   const match = key.match(/^SANPRO\d{4}-(\d{4}-\d{2}-\d{2})-([a-f0-9]{8})$/i);
   if (!match) return toast('Formato de clave invalido', false);
@@ -1417,13 +1444,18 @@ async function activateLicense() {
     return toast('Fecha de licencia invalida o vencida', false);
   }
   const payload = {
-    owner_id: teamOwnerId(),
+    owner_id: ownerId,
     installation_id: installationId,
     license_key: key,
     valid_until: match[1],
     status: 'active'
   };
-  const existing = await state.supabase.from('licenses').select('id').eq('installation_id', installationId).maybeSingle();
+  const existing = await state.supabase
+    .from('licenses')
+    .select('id')
+    .eq('owner_id', ownerId)
+    .eq('installation_id', installationId)
+    .maybeSingle();
   if (existing.error) return toast(existing.error.message, false);
   const result = existing.data
     ? await state.supabase.from('licenses').update(payload).eq('id', existing.data.id)

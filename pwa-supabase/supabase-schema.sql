@@ -169,6 +169,16 @@ update public.invoices
 set owner_id = (select id from public.profiles where role = 'owner' order by created_at asc limit 1)
 where owner_id is null;
 
+update public.licenses l
+set owner_id = (select id from public.profiles where role = 'owner' order by created_at asc limit 1)
+where l.owner_id is null
+  and not exists (
+    select 1
+    from public.licenses existing
+    where existing.owner_id = (select id from public.profiles where role = 'owner' order by created_at asc limit 1)
+      and existing.installation_id = l.installation_id
+  );
+
 create table if not exists public.audit_log (
   id uuid primary key default gen_random_uuid(),
   owner_id uuid references auth.users(id) on delete cascade,
