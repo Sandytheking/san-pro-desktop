@@ -113,6 +113,9 @@ alter table public.invoices
 alter table public.invoices
   add column if not exists payment_details jsonb not null default '{}'::jsonb;
 
+alter table public.invoices
+  add column if not exists payment_id uuid;
+
 alter table public.licenses
   add column if not exists owner_id uuid references auth.users(id) on delete cascade;
 
@@ -139,6 +142,10 @@ create unique index if not exists collectors_owner_name_unique
 create unique index if not exists invoices_owner_number_unique
   on public.invoices (owner_id, number)
   where owner_id is not null;
+
+create unique index if not exists invoices_owner_payment_unique
+  on public.invoices (owner_id, payment_id)
+  where owner_id is not null and payment_id is not null;
 
 create unique index if not exists licenses_owner_installation_unique
   on public.licenses (owner_id, installation_id)
@@ -340,6 +347,112 @@ as $$
   select public.current_user_role() in ('owner', 'admin', 'collector');
 $$;
 
+create or replace function public.register_payment(
+  p_client_id uuid,
+  p_payment_id uuid,
+  p_invoice_number text,
+  p_amount numeric,
+  p_new_balance numeric,
+  p_new_total numeric,
+  p_schedule jsonb,
+  p_payments jsonb,
+  p_payment_details jsonb default '{}'::jsonb,
+  p_paid_at timestamptz default now(),
+  p_expected_updated_at timestamptz default null
+)
+returns public.invoices
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  locked_client public.clients%rowtype;
+  created_invoice public.invoices%rowtype;
+begin
+  if p_amount <= 0 then
+    raise exception 'payment_amount_invalid';
+  end if;
+
+  select *
+    into locked_client
+  from public.clients
+  where id = p_client_id
+  for update;
+
+  if not found then
+    raise exception 'client_not_found';
+  end if;
+
+  if not public.can_access_client(locked_client.owner_id, locked_client.collector) then
+    raise exception 'client_not_accessible';
+  end if;
+
+  select *
+    into created_invoice
+  from public.invoices
+  where owner_id = locked_client.owner_id
+    and payment_id = p_payment_id
+  limit 1;
+
+  if found then
+    return created_invoice;
+  end if;
+
+  if p_expected_updated_at is not null and locked_client.updated_at <> p_expected_updated_at then
+    raise exception 'client_changed_reload_before_payment';
+  end if;
+
+  update public.clients
+  set balance = p_new_balance,
+      collected = locked_client.collected + p_amount,
+      total = p_new_total,
+      schedule = p_schedule,
+      payments = p_payments
+  where id = locked_client.id;
+
+  insert into public.invoices (
+    owner_id,
+    payment_id,
+    number,
+    client_id,
+    client_name,
+    amount,
+    previous_balance,
+    new_balance,
+    payment_details,
+    paid_at
+  ) values (
+    locked_client.owner_id,
+    p_payment_id,
+    p_invoice_number,
+    locked_client.id,
+    locked_client.name,
+    p_amount,
+    locked_client.balance,
+    p_new_balance,
+    coalesce(p_payment_details, '{}'::jsonb),
+    coalesce(p_paid_at, now())
+  )
+  returning * into created_invoice;
+
+  return created_invoice;
+end;
+$$;
+
+grant execute on function public.register_payment(
+  uuid,
+  uuid,
+  text,
+  numeric,
+  numeric,
+  numeric,
+  jsonb,
+  jsonb,
+  jsonb,
+  timestamptz,
+  timestamptz
+) to authenticated;
+
 create or replace function public.ensure_profile_business_owner()
 returns trigger
 language plpgsql
@@ -451,8 +564,16 @@ for select using (id = auth.uid() or business_owner_id = public.current_business
 create policy "sanpro_profiles_insert_self" on public.profiles
 for insert with check (id = auth.uid() and business_owner_id = auth.uid());
 create policy "sanpro_profiles_manage" on public.profiles
-for update using (public.can_manage_profiles() and business_owner_id = public.current_business_owner_id())
-with check (public.can_manage_profiles() and business_owner_id = public.current_business_owner_id());
+for update using (
+  public.can_manage_profiles()
+  and business_owner_id = public.current_business_owner_id()
+  and (public.current_user_role() = 'owner' or role <> 'owner')
+)
+with check (
+  public.can_manage_profiles()
+  and business_owner_id = public.current_business_owner_id()
+  and (public.current_user_role() = 'owner' or role <> 'owner')
+);
 
 drop policy if exists "sanpro_collectors_all" on public.collectors;
 drop policy if exists "sanpro_collectors_select" on public.collectors;
@@ -522,8 +643,8 @@ drop policy if exists "sanpro_licenses_write" on public.licenses;
 create policy "sanpro_licenses_select" on public.licenses
 for select using (public.same_business(owner_id));
 create policy "sanpro_licenses_write" on public.licenses
-for all using (public.can_manage_business() and public.same_business(owner_id))
-with check (public.can_manage_business() and public.same_business(owner_id));
+for all using (public.current_user_role() = 'owner' and public.same_business(owner_id))
+with check (public.current_user_role() = 'owner' and public.same_business(owner_id));
 
 drop policy if exists "sanpro_audit_all" on public.audit_log;
 drop policy if exists "sanpro_audit_select" on public.audit_log;

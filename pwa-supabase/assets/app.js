@@ -38,10 +38,19 @@ const planLimits = {
 
 const cfg = () => ({ ...defaults, ...(window.SANPRO_CONFIG || {}), ...state.settings });
 const money = n => '$' + Number(n || 0).toLocaleString('es-DO', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const escapeHtml = value => String(value ?? '').replace(/[&<>"']/g, char => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;'
+}[char]));
+const attr = value => escapeHtml(value);
 const today = () => dayjs().format('YYYY-MM-DD');
 const roundMoney = n => Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
 const makeInviteCode = () => crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase();
 const teamOwnerId = () => state.profile?.business_owner_id || state.profile?.id || state.user?.id || null;
+const offlineQueueKey = () => `sanpro_offline_queue:${teamOwnerId() || 'local'}`;
 const collectorTabs = ['dashboard', 'clients', 'new-loan', 'payments', 'invoices', 'collector-mobile'];
 
 function canUseTab(tabId) {
@@ -184,14 +193,14 @@ async function loadSettings() {
 
 function loadOfflineQueue() {
   try {
-    state.offlineQueue = JSON.parse(localStorage.getItem('sanpro_offline_queue') || '[]');
+    state.offlineQueue = JSON.parse(localStorage.getItem(offlineQueueKey()) || '[]');
   } catch {
     state.offlineQueue = [];
   }
 }
 
 function saveOfflineQueue() {
-  localStorage.setItem('sanpro_offline_queue', JSON.stringify(state.offlineQueue));
+  localStorage.setItem(offlineQueueKey(), JSON.stringify(state.offlineQueue));
   setSyncStatus(state.offlineQueue.length ? `${state.offlineQueue.length} pendiente(s)` : (navigator.onLine ? 'Sincronizado' : 'Offline'), navigator.onLine);
 }
 
@@ -280,7 +289,8 @@ function normalizeClient(row) {
     cobrado: Number(row.collected || 0),
     calendario: Array.isArray(row.schedule) ? row.schedule : [],
     historial: Array.isArray(row.payments) ? row.payments : [],
-    createdAt: row.created_at
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   };
 }
 
@@ -568,7 +578,7 @@ function renderPremiumDashboard() {
     .slice(0, 6);
   $('upcoming-list').innerHTML = upcoming.map(item => `
     <div class="timeline-item">
-      <span class="dot ${item.status.cls}"></span>
+      <span class="dot ${attr(item.status.cls)}"></span>
       <div><strong>${item.client.nombre}</strong><small>${item.client.cobrador} · ${item.due.format('DD/MM/YYYY')}</small></div>
       <b>${money(item.client.balance)}</b>
     </div>
@@ -660,8 +670,8 @@ function renderPlan() {
   const plan = state.plan?.plan || 'basic';
   const limit = planLimits[plan]?.clients ?? 25;
   $('plan-status').innerHTML = `
-    <span>Plan: <strong>${planLimits[plan]?.label || plan}</strong></span>
-    <span>Estado: <strong>${state.plan?.status || 'trial'}</strong></span>
+    <span>Plan: <strong>${escapeHtml(planLimits[plan]?.label || plan)}</strong></span>
+    <span>Estado: <strong>${escapeHtml(state.plan?.status || 'trial')}</strong></span>
     <span>Clientes: <strong>${state.clients.length}/${limit === Infinity ? 'Ilimitado' : limit}</strong></span>
     <span>Vence: <strong>${state.plan?.validUntil ? dayjs(state.plan.validUntil).format('DD/MM/YYYY') : '-'}</strong></span>
   `;
@@ -1132,48 +1142,42 @@ async function applyPayment(c, amount, queuedAt = null) {
     }
   }
 
-  const invoiceNumber = `SAN-${dayjs().format('YYYYMMDD-HHmmss')}`;
+  const paymentId = crypto.randomUUID();
+  const invoiceNumber = `SAN-${dayjs().format('YYYYMMDD-HHmmss')}-${paymentId.slice(0, 6).toUpperCase()}`;
   const payments = [...c.historial, { fecha: paidAt, monto: amount, factura: invoiceNumber, ...paymentBreakdown }];
 
-  const updateRes = await state.supabase.from('clients').update({
-    balance: newBalance,
-    collected: c.cobrado + amount,
-    total: newTotal,
-    schedule,
-    payments
-  }).eq('id', c.id);
-  if (updateRes.error) return toast(updateRes.error.message, false);
-
-  const invoice = {
-    owner_id: teamOwnerId(),
-    number: invoiceNumber,
-    client_id: c.id,
-    client_name: c.nombre,
-    amount,
-    previous_balance: previousBalance,
-    new_balance: newBalance,
-    payment_details: {
+  const invoiceRes = await state.supabase.rpc('register_payment', {
+    p_client_id: c.id,
+    p_payment_id: paymentId,
+    p_invoice_number: invoiceNumber,
+    p_amount: amount,
+    p_new_balance: newBalance,
+    p_new_total: newTotal,
+    p_schedule: schedule,
+    p_payments: payments,
+    p_payment_details: {
       loanType: c.tipo,
       ...paymentBreakdown
     },
-    paid_at: paidAt
-  };
-  const invoiceRes = await state.supabase.from('invoices').insert(invoice).select().single();
+    p_paid_at: paidAt,
+    p_expected_updated_at: c.updatedAt || null
+  });
   if (invoiceRes.error) return toast(invoiceRes.error.message, false);
 
-  state.lastInvoice = invoiceRes.data;
+  state.lastInvoice = Array.isArray(invoiceRes.data) ? invoiceRes.data[0] : invoiceRes.data;
   await loadAll();
   state.selectedClient = null;
   $('payment-search').value = '';
   $('payment-amount').value = '';
   $('payment-info').textContent = '';
-  showWhatsappReceipt({ ...c, balance: newBalance, calendario: schedule }, invoiceRes.data);
+  showWhatsappReceipt({ ...c, balance: newBalance, calendario: schedule }, state.lastInvoice);
   toast('Pago registrado y factura generada');
 }
 
 function queueOfflinePayment(client, amount) {
   const pending = {
     id: crypto.randomUUID(),
+    ownerId: teamOwnerId(),
     clientId: client.id,
     clientName: client.nombre,
     amount,
@@ -1191,9 +1195,11 @@ function queueOfflinePayment(client, amount) {
 async function syncOfflineQueue() {
   if (!navigator.onLine || !state.offlineQueue.length) return;
   setSyncStatus('Sincronizando cola...', true);
+  await loadAll();
   const pending = [...state.offlineQueue];
   const failed = [];
   for (const item of pending) {
+    if (item.ownerId && item.ownerId !== teamOwnerId()) continue;
     const client = state.clients.find(c => c.id === item.clientId);
     if (!client) {
       failed.push(item);
@@ -1236,20 +1242,20 @@ function printInvoice(invoice) {
   $('print-area').innerHTML = `
     <section class="receipt-page">
       <header>
-        <img src="${logo}" alt="${cfg().businessName}" />
+        <img src="${logo}" alt="${attr(cfg().businessName)}" />
         <div>
-          <h1>${cfg().businessName}</h1>
-          <p>${cfg().businessTagline}</p>
+          <h1>${escapeHtml(cfg().businessName)}</h1>
+          <p>${escapeHtml(cfg().businessTagline)}</p>
         </div>
       </header>
       <div class="receipt-meta">
-        <span>Factura <strong>${invoice.number}</strong></span>
+        <span>Factura <strong>${escapeHtml(invoice.number)}</strong></span>
         <span>${dayjs(invoice.paid_at).format('DD/MM/YYYY hh:mm A')}</span>
       </div>
       <h2>Recibo de Pago</h2>
       <div class="receipt-client">
         <span>Cliente</span>
-        <strong>${invoice.client_name}</strong>
+        <strong>${escapeHtml(invoice.client_name)}</strong>
       </div>
       <div class="receipt-money">
         <div><span>Monto pagado</span><strong>${money(invoice.amount)}</strong></div>
@@ -1258,10 +1264,243 @@ function printInvoice(invoice) {
         ${detailsHtml}
       </div>
       ${weeksHtml}
-      <footer>${cfg().receiptFooter}</footer>
+      <footer>${escapeHtml(cfg().receiptFooter)}</footer>
     </section>
   `;
   window.print();
+}
+
+function renderUsers() {
+  if (!$('users-body')) return;
+  const collectors = [...new Set(state.collectors.map(c => c.name))].filter(Boolean).sort();
+  $('users-body').innerHTML = state.profiles.map(p => `
+    <tr>
+      <td>${escapeHtml(p.full_name || p.id)}</td>
+      <td>
+        <select data-user-role="${attr(p.id)}">
+          ${['owner', 'admin', 'collector', 'viewer'].map(role => `<option value="${attr(role)}" ${p.role === role ? 'selected' : ''}>${escapeHtml(role)}</option>`).join('')}
+        </select>
+      </td>
+      <td>
+        <select data-user-collector="${attr(p.id)}">
+          <option value="">Sin asignar</option>
+          ${collectors.map(name => `<option value="${attr(name)}" ${p.collector_name === name ? 'selected' : ''}>${escapeHtml(name)}</option>`).join('')}
+        </select>
+      </td>
+      <td>${p.active ? 'Activo' : 'Inactivo'}</td>
+      <td><button data-save-user="${attr(p.id)}">Guardar</button></td>
+    </tr>
+  `).join('') || '<tr><td colspan="5">No hay usuarios para mostrar.</td></tr>';
+}
+
+function renderCollectorPerformance() {
+  const groups = new Map();
+  state.clients.forEach(c => {
+    const current = groups.get(c.cobrador) || { name: c.cobrador, loaned: 0, collected: 0, balance: 0, late: 0 };
+    current.loaned += c.monto;
+    current.collected += c.cobrado;
+    current.balance += c.balance;
+    if (loanStatus(c).text === 'MOROSO') current.late++;
+    groups.set(c.cobrador, current);
+  });
+  const rows = [...groups.values()].sort((a, b) => b.collected - a.collected);
+  const max = Math.max(1, ...rows.map(r => r.collected));
+  $('collector-count').textContent = `${rows.length} cobradores`;
+  $('collector-performance').innerHTML = rows.map(r => `
+    <div class="bar-row">
+      <div><strong>${escapeHtml(r.name)}</strong><small>${money(r.collected)} cobrado - ${r.late} morosos</small></div>
+      <div class="bar-track"><span style="width:${Math.round((r.collected / max) * 100)}%"></span></div>
+      <b>${money(r.balance)}</b>
+    </div>
+  `).join('') || '<p class="muted">Agrega cobradores y prestamos para ver rendimiento.</p>';
+}
+
+function renderPremiumDashboard() {
+  const buckets = clientBuckets();
+  const totalActive = Math.max(1, buckets.ok + buckets.late);
+  const score = state.clients.length ? Math.round(((buckets.ok + buckets.paid) / state.clients.length) * 100) : 0;
+  const balance = state.clients.reduce((sum, c) => sum + c.balance, 0);
+  const collected = monthCollected();
+  const goal = Number(cfg().monthlyGoal || 0);
+  const goalPercent = goal > 0 ? Math.min(100, Math.round((collected / goal) * 100)) : 0;
+
+  $('executive-headline').textContent = balance > 0
+    ? `Cartera activa de ${money(balance)}`
+    : 'No hay balance pendiente';
+  $('executive-copy').textContent = state.clients.length
+    ? `${buckets.ok} al dia, ${buckets.late} en riesgo y ${buckets.paid} pagados.`
+    : 'Crea tu primer prestamo para empezar a medir el negocio.';
+  $('health-score').textContent = `${score}%`;
+  $('health-score-label').textContent = `${score}% sano`;
+  $('health-ring').style.setProperty('--score', `${score}%`);
+  $('health-ok').textContent = buckets.ok;
+  $('health-late').textContent = buckets.late;
+  $('health-paid').textContent = buckets.paid;
+  $('monthly-goal-label').textContent = goal ? `${money(collected)} / ${money(goal)}` : money(collected);
+  $('monthly-goal-bar').style.width = `${goalPercent}%`;
+  $('monthly-goal-copy').textContent = goal
+    ? `${goalPercent}% de la meta mensual completada.`
+    : 'Configura una meta mensual en Ajustes.';
+
+  const upcoming = state.clients
+    .filter(c => c.balance > 0)
+    .map(c => ({ client: c, due: nextDueDate(c), status: loanStatus(c) }))
+    .sort((a, b) => a.due.valueOf() - b.due.valueOf())
+    .slice(0, 6);
+  $('upcoming-list').innerHTML = upcoming.map(item => `
+    <div class="timeline-item">
+      <span class="dot ${attr(item.status.cls)}"></span>
+      <div><strong>${escapeHtml(item.client.nombre)}</strong><small>${escapeHtml(item.client.cobrador)} - ${item.due.format('DD/MM/YYYY')}</small></div>
+      <b>${money(item.client.balance)}</b>
+    </div>
+  `).join('') || '<p class="muted">No hay cobros pendientes.</p>';
+}
+
+function renderClients() {
+  const rows = filteredClients();
+  const canDelete = ['owner', 'admin'].includes(state.profile?.role);
+  $('clients-body').innerHTML = rows.map((c, index) => {
+    const st = loanStatus(c);
+    return `
+      <tr>
+        <td>${index + 1}</td>
+        <td>${escapeHtml(c.nombre)}</td>
+        <td>${c.tipo === 'redito' ? 'Redito' : 'San'}</td>
+        <td>${escapeHtml(c.telefono || '-')}</td>
+        <td>${escapeHtml(c.cedula || '-')}</td>
+        <td>${escapeHtml(c.cobrador)}</td>
+        <td>${money(c.monto)}</td>
+        <td>${money(c.balance)}</td>
+        <td>${escapeHtml(st.next)}</td>
+        <td><span class="badge ${attr(st.cls)}">${escapeHtml(st.text)}</span></td>
+        <td class="actions-cell">
+          <button data-view="${attr(c.id)}">Ver</button>
+          ${canDelete ? `<button class="danger" data-delete="${attr(c.id)}">Eliminar</button>` : ''}
+        </td>
+      </tr>`;
+  }).join('') || '<tr><td colspan="11">No hay clientes para mostrar.</td></tr>';
+}
+
+function renderClientFilters() {
+  const collectors = [...new Set([...state.collectors.map(c => c.name), ...state.clients.map(c => c.cobrador)])].filter(Boolean).sort();
+  const option = name => `<option value="${attr(name)}">${escapeHtml(name)}</option>`;
+  if (state.profile?.role === 'collector') {
+    const assigned = state.profile.collector_name || collectors[0] || '';
+    $('filter-collector').innerHTML = assigned ? option(assigned) : '<option value="">Sin cobrador asignado</option>';
+    $('filter-collector').value = assigned;
+    $('loan-collector').innerHTML = assigned ? option(assigned) : '<option value="">Sin cobrador asignado</option>';
+    $('loan-collector').value = assigned;
+    return;
+  }
+  $('filter-collector').innerHTML = '<option value="">Todos los cobradores</option>' + collectors.map(option).join('');
+  $('loan-collector').innerHTML = collectors.length
+    ? collectors.map(option).join('')
+    : '<option value="Cobrador 1">Cobrador 1</option>';
+}
+
+function renderCollectors() {
+  $('collector-tags').innerHTML = state.collectors.map(c => `
+    <span class="tag">${escapeHtml(c.name)}<button data-remove-collector="${attr(c.id)}">x</button></span>
+  `).join('');
+}
+
+function renderInvoices() {
+  $('invoices-body').innerHTML = state.invoices.map(i => `
+    <tr>
+      <td>${escapeHtml(i.number)}</td>
+      <td>${escapeHtml(i.client_name)}</td>
+      <td>${money(i.amount)}</td>
+      <td>${money(i.new_balance)}</td>
+      <td>${dayjs(i.paid_at).format('DD/MM/YYYY hh:mm A')}</td>
+      <td>
+        <button data-print-invoice="${attr(i.id)}">Imprimir</button>
+        <button data-whatsapp-invoice="${attr(i.id)}" class="success">WhatsApp</button>
+      </td>
+    </tr>
+  `).join('') || '<tr><td colspan="6">No hay facturas registradas.</td></tr>';
+}
+
+function renderSmartAlerts() {
+  const alerts = [];
+  const lateClients = state.clients.filter(c => loanStatus(c).text === 'MOROSO');
+  const highBalance = [...state.clients].filter(c => c.balance > 0).sort((a, b) => b.balance - a.balance)[0];
+  const noCollector = state.clients.filter(c => !c.cobrador || c.cobrador === 'N/A').length;
+  if (lateClients.length) alerts.push({ level: 'danger', text: `${lateClients.length} clientes requieren seguimiento por mora.` });
+  if (highBalance) alerts.push({ level: 'warn', text: `${highBalance.nombre} tiene el mayor balance: ${money(highBalance.balance)}.` });
+  if (noCollector) alerts.push({ level: 'warn', text: `${noCollector} clientes no tienen cobrador definido.` });
+  if (!alerts.length) alerts.push({ level: 'ok', text: 'La cartera se ve estable por ahora.' });
+  $('alerts-count').textContent = alerts.length;
+  $('smart-alerts').innerHTML = alerts.map(a => `<div class="alert ${attr(a.level)}">${escapeHtml(a.text)}</div>`).join('');
+}
+
+function searchPaymentClients() {
+  const q = $('payment-search').value.trim().toLowerCase();
+  const box = $('payment-results');
+  if (!q) {
+    box.classList.add('hidden');
+    return;
+  }
+  const matches = state.clients.filter(c => c.nombre.toLowerCase().includes(q) && c.balance > 0).slice(0, 10);
+  box.innerHTML = matches.map(c => `<button data-select-payment="${attr(c.id)}">${escapeHtml(c.nombre)} (${money(c.balance)})</button>`).join('');
+  box.classList.toggle('hidden', matches.length === 0);
+}
+
+function openClient(id) {
+  const c = state.clients.find(x => x.id === id);
+  if (!c) return;
+  $('modal-title').textContent = `${c.nombre}${c.cedula ? ' - ' + c.cedula : ''}`;
+  const redSummary = c.tipo === 'redito' ? reditoPaymentSummary(c) : null;
+  const displaySchedule = redSummary?.schedule || c.calendario;
+  $('schedule-grid').innerHTML = displaySchedule.map((s, i) => {
+    const paid = Number(s.pagado || 0) >= Number(s.cuota || 0);
+    const due = periodDueDate(c, i).format('DD/MM/YYYY');
+    const amountLabel = c.tipo === 'redito' ? 'Redito' : 'Cuota';
+    return `
+      <div class="week-card ${paid ? 'paid' : ''}">
+        <strong>${escapeHtml(periodLabel(c, i))}</strong>
+        <span>Vence: ${due}</span><br />
+        <span>${amountLabel}: ${money(s.cuota)}</span><br />
+        <span>Pagado: ${money(s.pagado)}</span><br />
+        ${paid ? '<span class="badge ok">PAGADO</span>' : `<button data-pay-week="${attr(c.id)}:${i}">Cobrar</button>`}
+      </div>`;
+  }).join('') + (redSummary ? `
+    <div class="week-card principal-card">
+      <strong>Capital pendiente</strong>
+      <span>${money(redSummary.principalPending)}</span><br />
+      <small>El capital baja solo cuando el cliente paga mas que el redito mensual.</small>
+    </div>
+  ` : '');
+  $('payment-history').innerHTML = c.historial.length
+    ? c.historial.slice().reverse().map(p => `<div class="history-row"><span>${dayjs(p.fecha).format('DD/MM/YYYY hh:mm A')}</span><strong>${money(p.monto)}</strong></div>`).join('')
+    : '<p>Sin pagos registrados.</p>';
+  $('client-modal').classList.remove('hidden');
+}
+
+function renderMobileCollector() {
+  if (!$('mobile-client-list')) return;
+  const q = $('mobile-client-search')?.value.trim().toLowerCase() || '';
+  const due = state.clients
+    .filter(c => c.balance > 0)
+    .filter(c => !q || `${c.nombre} ${c.telefono} ${c.cedula}`.toLowerCase().includes(q))
+    .map(c => ({ client: c, due: nextDueDate(c), status: loanStatus(c) }))
+    .sort((a, b) => a.due.valueOf() - b.due.valueOf());
+  const total = due.reduce((sum, item) => sum + item.client.balance, 0);
+  $('mobile-total').textContent = money(total);
+  $('mobile-copy').textContent = `${due.length} clientes con balance pendiente.`;
+  $('mobile-client-list').innerHTML = due.map(item => `
+    <article class="mobile-client-card">
+      <div>
+        <strong>${escapeHtml(item.client.nombre)}</strong>
+        <span>${escapeHtml(item.status.text)} - vence ${item.due.format('DD/MM/YYYY')}</span>
+      </div>
+      <b>${money(item.client.balance)}</b>
+      <div class="mobile-card-actions">
+        <button data-mobile-pay="${attr(item.client.id)}" class="success">Cobrar</button>
+        <button data-mobile-view="${attr(item.client.id)}" class="ghost">Ver</button>
+        ${item.client.telefono ? `<a class="button ghost" href="https://wa.me/${attr(sanitizePhone(item.client.telefono))}" target="_blank" rel="noreferrer">WhatsApp</a>` : ''}
+      </div>
+    </article>
+  `).join('') || '<p class="muted">No hay clientes pendientes en esta ruta.</p>';
 }
 
 function makeReceiptLogo() {
@@ -1347,13 +1586,36 @@ function exportPremiumReport() {
   URL.revokeObjectURL(a.href);
 }
 
+function validateImportPayload(payload) {
+  const errors = [];
+  if (!payload || typeof payload !== 'object') errors.push('El archivo no contiene un objeto JSON valido.');
+  const clients = Array.isArray(payload?.clients) ? payload.clients : [];
+  const seenNames = new Set();
+  clients.forEach((client, index) => {
+    const label = `Cliente ${index + 1}`;
+    const name = String(client.nombre || client.name || '').trim();
+    const amount = Number(client.monto ?? client.amount ?? 0);
+    const balance = Number(client.balance ?? 0);
+    const startDate = client.fechaInicio || client.start_date;
+    if (!name) errors.push(`${label}: nombre requerido.`);
+    if (seenNames.has(name.toLowerCase())) errors.push(`${label}: nombre duplicado en el archivo.`);
+    if (name) seenNames.add(name.toLowerCase());
+    if (!Number.isFinite(amount) || amount < 0) errors.push(`${label}: monto invalido.`);
+    if (!Number.isFinite(balance) || balance < 0) errors.push(`${label}: balance invalido.`);
+    if (startDate && !dayjs(startDate).isValid()) errors.push(`${label}: fecha invalida.`);
+  });
+  return errors;
+}
+
 async function importBackup(file) {
   if (!file) return;
   if (!confirm('Importar este backup? Se agregaran los datos al sistema actual.')) return;
   const payload = JSON.parse(await file.text());
+  const errors = validateImportPayload(payload);
+  if (errors.length) return toast(errors.slice(0, 3).join(' '), false);
   if (Array.isArray(payload.collectors)) {
     for (const c of payload.collectors) {
-      await state.supabase.from('collectors').upsert({ name: c.name || c.nombre, owner_id: teamOwnerId() }, { onConflict: 'name' });
+      await state.supabase.from('collectors').upsert({ name: c.name || c.nombre, owner_id: teamOwnerId() }, { onConflict: 'owner_id,name' });
     }
   }
   if (Array.isArray(payload.clients)) {
@@ -1369,10 +1631,12 @@ async function importBackup(file) {
 async function importMigration(file) {
   if (!file) return;
   const payload = JSON.parse(await file.text());
+  const errors = validateImportPayload(payload);
+  if (errors.length) return toast(errors.slice(0, 3).join(' '), false);
   const result = { collectors: 0, clients: 0 };
   if (Array.isArray(payload.collectors)) {
     for (const c of payload.collectors) {
-      await state.supabase.from('collectors').upsert({ name: c.name || c.nombre, owner_id: teamOwnerId() }, { onConflict: 'name' });
+      await state.supabase.from('collectors').upsert({ name: c.name || c.nombre, owner_id: teamOwnerId() }, { onConflict: 'owner_id,name' });
       result.collectors++;
     }
   }
@@ -1456,6 +1720,9 @@ async function verifyLicense() {
 }
 
 async function activateLicense() {
+  if (state.profile?.role !== 'owner') {
+    return toast('Solo el owner puede activar licencias.', false);
+  }
   const key = $('license-key').value.trim();
   const installationId = getInstallationId();
   const ownerId = teamOwnerId();
