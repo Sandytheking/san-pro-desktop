@@ -42,6 +42,11 @@ const today = () => dayjs().format('YYYY-MM-DD');
 const roundMoney = n => Math.round((Number(n || 0) + Number.EPSILON) * 100) / 100;
 const makeInviteCode = () => crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase();
 const teamOwnerId = () => state.profile?.business_owner_id || state.profile?.id || state.user?.id || null;
+const collectorTabs = ['dashboard', 'clients', 'new-loan', 'payments', 'invoices', 'collector-mobile'];
+
+function canUseTab(tabId) {
+  return state.profile?.role !== 'collector' || collectorTabs.includes(tabId);
+}
 
 function toast(message, ok = true) {
   const t = $('toast');
@@ -65,9 +70,10 @@ function showScreen(id) {
 }
 
 function activateTab(tabId) {
-  $$('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tabId));
-  $$('.mobile-nav button').forEach(b => b.classList.toggle('active', b.dataset.mobileTab === tabId));
-  $$('.tab').forEach(t => t.classList.toggle('active', t.id === tabId));
+  const targetTab = canUseTab(tabId) ? tabId : 'collector-mobile';
+  $$('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === targetTab));
+  $$('.mobile-nav button').forEach(b => b.classList.toggle('active', b.dataset.mobileTab === targetTab));
+  $$('.tab').forEach(t => t.classList.toggle('active', t.id === targetTab));
 }
 
 function getStoredConfig() {
@@ -763,6 +769,7 @@ function filteredClients() {
 
 function renderClients() {
   const rows = filteredClients();
+  const canDelete = ['owner', 'admin'].includes(state.profile?.role);
   $('clients-body').innerHTML = rows.map((c, index) => {
     const st = loanStatus(c);
     return `
@@ -779,7 +786,7 @@ function renderClients() {
         <td><span class="badge ${st.cls}">${st.text}</span></td>
         <td class="actions-cell">
           <button data-view="${c.id}">Ver</button>
-          <button class="danger" data-delete="${c.id}">Eliminar</button>
+          ${canDelete ? `<button class="danger" data-delete="${c.id}">Eliminar</button>` : ''}
         </td>
       </tr>`;
   }).join('') || '<tr><td colspan="11">No hay clientes para mostrar.</td></tr>';
@@ -793,6 +800,14 @@ function clearClientFilters() {
 
 function renderClientFilters() {
   const collectors = [...new Set([...state.collectors.map(c => c.name), ...state.clients.map(c => c.cobrador)])].filter(Boolean).sort();
+  if (state.profile?.role === 'collector') {
+    const assigned = state.profile.collector_name || collectors[0] || '';
+    $('filter-collector').innerHTML = assigned ? `<option value="${assigned}">${assigned}</option>` : '<option value="">Sin cobrador asignado</option>';
+    $('filter-collector').value = assigned;
+    $('loan-collector').innerHTML = assigned ? `<option value="${assigned}">${assigned}</option>` : '<option value="">Sin cobrador asignado</option>';
+    $('loan-collector').value = assigned;
+    return;
+  }
   $('filter-collector').innerHTML = '<option value="">Todos los cobradores</option>' + collectors.map(c => `<option value="${c}">${c}</option>`).join('');
   $('loan-collector').innerHTML = collectors.length
     ? collectors.map(c => `<option value="${c}">${c}</option>`).join('')
@@ -851,6 +866,10 @@ function renderMobileCollector() {
 async function saveLoan(event) {
   event.preventDefault();
   if (!enforcePlanLimit()) return;
+  if (state.profile?.role === 'collector' && !state.profile.collector_name) {
+    toast('Tu usuario no tiene un cobrador asignado. Pide al admin que lo asigne.', false);
+    return;
+  }
   const calc = calculateLoan();
   const startDate = $('loan-date').value || today();
   const schedule = Array.from({ length: calc.weeks }, () => ({ cuota: calc.weekly, pagado: 0 }));
@@ -874,7 +893,7 @@ async function saveLoan(event) {
     nombre: $('loan-name').value.trim(),
     telefono: $('loan-phone').value.trim(),
     cedula: $('loan-document').value.trim(),
-    cobrador: $('loan-collector').value,
+    cobrador: state.profile?.role === 'collector' ? state.profile.collector_name : $('loan-collector').value,
     monto: calc.amount,
     interes: calc.interest,
     semanas: calc.weeks,
@@ -1263,6 +1282,10 @@ function makeReceiptLogo() {
 }
 
 async function addCollector(name) {
+  if (!['owner', 'admin'].includes(state.profile?.role)) {
+    toast('Solo owner/admin pueden crear cobradores.', false);
+    return;
+  }
   const clean = name.trim();
   if (!clean) return;
   const { error } = await state.supabase.from('collectors').insert({ name: clean, owner_id: teamOwnerId() });

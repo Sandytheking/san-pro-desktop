@@ -164,6 +164,27 @@ small { color: var(--muted); line-height: 1.5; }
 .tab.active { display: block; }
 .tab h2 { margin-top: 0; }
 
+body[data-role="collector"] .tabs button {
+  display: none;
+}
+
+body[data-role="collector"] .tabs button[data-tab="dashboard"],
+body[data-role="collector"] .tabs button[data-tab="clients"],
+body[data-role="collector"] .tabs button[data-tab="new-loan"],
+body[data-role="collector"] .tabs button[data-tab="payments"],
+body[data-role="collector"] .tabs button[data-tab="invoices"] {
+  display: block;
+}
+
+body[data-role="collector"] .top-actions #export-backup,
+body[data-role="collector"] .top-actions label,
+body[data-role="collector"] .top-actions #open-donation,
+body[data-role="collector"] .top-actions #show-installation,
+body[data-role="collector"] #filter-collector,
+body[data-role="collector"] #loan-collector {
+  display: none;
+}
+
 .hero-panel {
   display: flex;
   justify-content: space-between;

@@ -477,7 +477,16 @@ drop policy if exists "sanpro_clients_delete" on public.clients;
 create policy "sanpro_clients_select" on public.clients
 for select using (public.can_access_client(owner_id, collector));
 create policy "sanpro_clients_insert" on public.clients
-for insert with check (public.can_manage_business() and public.same_business(owner_id));
+for insert with check (
+  public.same_business(owner_id)
+  and (
+    public.can_manage_business()
+    or (
+      public.current_user_role() = 'collector'
+      and collector = public.current_collector_name()
+    )
+  )
+);
 create policy "sanpro_clients_update" on public.clients
 for update using (public.can_access_client(owner_id, collector))
 with check (public.can_access_client(owner_id, collector));
