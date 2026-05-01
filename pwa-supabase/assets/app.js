@@ -1676,6 +1676,7 @@ async function notifyDuePayments() {
 async function verifyLicense() {
   const installationId = getInstallationId();
   const ownerId = teamOwnerId();
+  const isOwner = state.profile?.role === 'owner';
   $('installation-id').textContent = installationId;
   const { data, error } = await state.supabase
     .from('licenses')
@@ -1686,6 +1687,9 @@ async function verifyLicense() {
   if (error) throw error;
   let license = data;
   if (!license) {
+    if (!isOwner) {
+      return true;
+    }
     const trialUntil = dayjs().add(30, 'day').format('YYYY-MM-DD');
     const insert = await state.supabase
       .from('licenses')
