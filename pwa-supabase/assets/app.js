@@ -713,6 +713,7 @@ async function saveUserProfile(id) {
   const { error } = await state.supabase.from('profiles').update({
     role,
     collector_name: collectorName,
+    collector_id: state.collectors.find(c => c.name === collectorName)?.id || null,
     business_owner_id: teamOwnerId()
   }).eq('id', id);
   if (error) return toast(error.message, false);
@@ -1836,6 +1837,31 @@ async function loadProfile() {
   return data;
 }
 
+async function handleForgotPassword() {
+  const email = $('auth-email').value.trim();
+  if (!email) return toast('Ingresa tu correo en el campo superior para recuperar la contrasena', false);
+  const { error } = await state.supabase.auth.resetPasswordForEmail(email, {
+    redirectTo: location.origin + location.pathname
+  });
+  if (error) return toast(error.message, false);
+  toast('Te enviamos un correo para restablecer la contrasena');
+}
+
+async function handleForgotPin() {
+  const password = prompt('Para restablecer el PIN, ingresa tu contrasena actual de la cuenta:');
+  if (!password) return;
+  const email = state.user?.email;
+  if (!email) return toast('Error: No se encontro el correo del usuario', false);
+  const { error } = await state.supabase.auth.signInWithPassword({ email, password });
+  if (error) return toast('Contrasena incorrecta', false);
+  await setConfigValue('pin_hash', null);
+  toast('PIN restablecido. Ingresa un nuevo PIN.');
+  $('pin-title').textContent = 'Crear PIN';
+  $('pin-submit').textContent = 'Guardar PIN';
+  $('pin-input').value = '';
+  $('pin-input').focus();
+}
+
 function setAuthMode(mode) {
   state.authMode = mode;
   const signup = mode === 'signup';
@@ -1969,12 +1995,14 @@ function bindEvents() {
   $('reject-terms').onclick = () => toast('Debe aceptar los terminos para usar SAN PRO', false);
   $('auth-submit').onclick = () => submitAuth().catch(err => toast(err.message, false));
   $('auth-toggle').onclick = () => setAuthMode(state.authMode === 'login' ? 'signup' : 'login');
+  $('auth-forgot-password').onclick = () => handleForgotPassword().catch(err => toast(err.message, false));
   ['auth-email', 'auth-password', 'auth-name', 'auth-business-code'].forEach(id => {
     $(id).addEventListener('keydown', e => {
       if (e.key === 'Enter') submitAuth().catch(err => toast(err.message, false));
     });
   });
   $('pin-submit').onclick = () => handlePin().catch(err => toast(err.message, false));
+  $('pin-forgot').onclick = () => handleForgotPin().catch(err => toast(err.message, false));
   $('pin-input').addEventListener('keydown', e => {
     if (e.key === 'Enter') handlePin().catch(err => toast(err.message, false));
   });

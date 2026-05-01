@@ -50,6 +50,7 @@
       <p id="pin-title">Ingrese PIN</p>
       <input id="pin-input" type="password" inputmode="numeric" minlength="6" autocomplete="off" placeholder="PIN" />
       <button id="pin-submit">Entrar</button>
+      <button id="pin-forgot" class="ghost" style="margin-top: 10px;">Olvide mi PIN</button>
     </div>
   </section>
 
@@ -66,7 +67,10 @@
       <label id="auth-business-code-label" class="hidden">Codigo de negocio</label>
       <input id="auth-business-code" class="hidden" autocomplete="off" placeholder="Opcional para tu equipo" />
       <button id="auth-submit">Entrar</button>
-      <button id="auth-toggle" class="ghost">Crear cuenta nueva</button>
+      <div class="auth-actions" style="display: flex; gap: 8px; flex-direction: column;">
+        <button id="auth-forgot-password" class="ghost" style="margin: 0; padding: 4px;">Olvide mi contrasena</button>
+        <button id="auth-toggle" class="ghost" style="margin: 0; padding: 4px;">Crear cuenta nueva</button>
+      </div>
       <small>Sin codigo creas tu propio negocio. Con codigo entras al equipo de un admin.</small>
     </div>
   </section>
