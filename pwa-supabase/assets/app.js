@@ -53,7 +53,7 @@ const html = (strings, ...values) => String.raw({ raw: strings }, ...values.map(
 const makeInviteCode = () => crypto.randomUUID().replace(/-/g, '').slice(0, 10).toUpperCase();
 const teamOwnerId = () => state.profile?.business_owner_id || state.profile?.id || state.user?.id || null;
 const offlineQueueKey = () => `sanpro_offline_queue:${teamOwnerId() || 'local'}`;
-const collectorTabs = ['dashboard', 'clients', 'payments', 'invoices', 'collector-mobile'];
+const collectorTabs = ['dashboard', 'clients', 'payments', 'invoices', 'collector-mobile', 'more-menu'];
 
 function canUseTab(tabId) {
   if (state.profile?.role !== 'collector') return true;
@@ -556,74 +556,11 @@ function monthCollected() {
     .reduce((sum, i) => sum + Number(i.amount || 0), 0);
 }
 
-function renderPremiumDashboard() {
-  const buckets = clientBuckets();
-  const totalActive = Math.max(1, buckets.ok + buckets.late);
-  const score = state.clients.length ? Math.round(((buckets.ok + buckets.paid) / state.clients.length) * 100) : 0;
-  const balance = state.clients.reduce((sum, c) => sum + c.balance, 0);
-  const collected = monthCollected();
-  const goal = Number(cfg().monthlyGoal || 0);
-  const goalPercent = goal > 0 ? Math.min(100, Math.round((collected / goal) * 100)) : 0;
-
-  $('executive-headline').textContent = balance > 0
-    ? `Cartera activa de ${money(balance)}`
-    : 'No hay balance pendiente';
-  $('executive-copy').textContent = state.clients.length
-    ? `${buckets.ok} al dia, ${buckets.late} en riesgo y ${buckets.paid} pagados.`
-    : 'Crea tu primer prestamo para empezar a medir el negocio.';
-  $('health-score').textContent = `${score}%`;
-  $('health-score-label').textContent = `${score}% sano`;
-  $('health-ring').style.setProperty('--score', `${score}%`);
-  $('health-ok').textContent = buckets.ok;
-  $('health-late').textContent = buckets.late;
-  $('health-paid').textContent = buckets.paid;
-  $('monthly-goal-label').textContent = goal ? `${money(collected)} / ${money(goal)}` : money(collected);
-  $('monthly-goal-bar').style.width = `${goalPercent}%`;
-  $('monthly-goal-copy').textContent = goal
-    ? `${goalPercent}% de la meta mensual completada.`
-    : 'Configura una meta mensual en Ajustes.';
-
-  const upcoming = state.clients
-    .filter(c => c.balance > 0)
-    .map(c => ({ client: c, due: nextDueDate(c), status: loanStatus(c) }))
-    .sort((a, b) => a.due.valueOf() - b.due.valueOf())
-    .slice(0, 6);
-  $('upcoming-list').innerHTML = upcoming.map(item => html`
-    <div class="timeline-item">
-      <span class="dot ${item.status.cls}"></span>
-      <div><strong>${item.client.nombre}</strong><small>${item.client.cobrador} · ${item.due.format('DD/MM/YYYY')}</small></div>
-      <b>${money(item.client.balance)}</b>
-    </div>
-  `).join('') || '<p class="muted">No hay cobros pendientes.</p>';;
-}
-
 function renderAnalytics() {
   renderCollectorPerformance();
   renderPortfolioChart();
   renderProjection();
   renderSmartAlerts();
-}
-
-function renderCollectorPerformance() {
-  const groups = new Map();
-  state.clients.forEach(c => {
-    const current = groups.get(c.cobrador) || { name: c.cobrador, loaned: 0, collected: 0, balance: 0, late: 0 };
-    current.loaned += c.monto;
-    current.collected += c.cobrado;
-    current.balance += c.balance;
-    if (loanStatus(c).text === 'MOROSO') current.late++;
-    groups.set(c.cobrador, current);
-  });
-  const rows = [...groups.values()].sort((a, b) => b.collected - a.collected);
-  const max = Math.max(1, ...rows.map(r => r.collected));
-  $('collector-count').textContent = `${rows.length} cobradores`;
-  $('collector-performance').innerHTML = rows.map(r => html`
-    <div class="bar-row">
-      <div><strong>${r.name}</strong><small>${money(r.collected)} cobrado · ${r.late} morosos</small></div>
-      <div class="bar-track"><span style="width:${Math.round((r.collected / max) * 100)}%"></span></div>
-      <b>${money(r.balance)}</b>
-    </div>
-  `).join('') || '<p class="muted">Agrega cobradores y prestamos para ver rendimiento.</p>';
 }
 
 async function loadProfiles() {
@@ -1182,42 +1119,101 @@ function printInvoice(invoice) {
   const client = findInvoiceClient(invoice);
   const details = invoiceDetails(invoice, client);
   const progress = clientPaymentProgress(client);
-  const detailsHtml = Number(details.pagoInteres || 0) > 0 || Number(details.pagoCapital || 0) > 0
-    ? `
-        <div><span>Aplicado a interes</span><strong>${money(details.pagoInteres || 0)}</strong></div>
-        <div><span>Aplicado a capital</span><strong>${money(details.pagoCapital || 0)}</strong></div>
-      `
-    : '';
-  const weeksHtml = progress.periods
-    ? `<p>${progress.label}: <strong>${progress.remainingPeriods} de ${progress.periods}</strong></p>`
-    : '';
+  
+  // Table Rows Builder
+  const rows = [];
+  rows.push(`
+    <tr>
+      <td><strong>Monto cobrado (Pago recibido)</strong></td>
+      <td class="text-right"><strong>${money(invoice.amount)}</strong></td>
+    </tr>
+  `);
+  rows.push(`
+    <tr>
+      <td>Balance anterior</td>
+      <td class="text-right">${money(invoice.previous_balance)}</td>
+    </tr>
+  `);
+  rows.push(`
+    <tr class="highlight-row">
+      <td><strong>Balance restante (Pendiente)</strong></td>
+      <td class="text-right"><strong>${money(invoice.new_balance)}</strong></td>
+    </tr>
+  `);
+  
+  if (Number(details.pagoInteres || 0) > 0) {
+    rows.push(`
+      <tr>
+        <td>Aplicado a interés de renta</td>
+        <td class="text-right" style="color: #15803d;">+ ${money(details.pagoInteres)}</td>
+      </tr>
+    `);
+  }
+  if (Number(details.pagoCapital || 0) > 0) {
+    rows.push(`
+      <tr>
+        <td>Abonado a capital principal</td>
+        <td class="text-right" style="color: #2563eb;">- ${money(details.pagoCapital)}</td>
+      </tr>
+    `);
+  }
+  if (progress.periods) {
+    rows.push(`
+      <tr class="info-row">
+        <td>Progreso de cuotas (${progress.label})</td>
+        <td class="text-right"><strong>${progress.remainingPeriods} de ${progress.periods}</strong></td>
+      </tr>
+    `);
+  }
+
   $('print-area').innerHTML = `
-    <section class="receipt-page">
-      <header>
-        <img src="${logo}" alt="${attr(cfg().businessName)}" />
-        <div>
-          <h1>${escapeHtml(cfg().businessName)}</h1>
-          <p>${escapeHtml(cfg().businessTagline)}</p>
+    <div class="receipt-page">
+      <header class="receipt-header">
+        <div class="receipt-brand">
+          <img src="${logo}" alt="${attr(cfg().businessName)}" class="receipt-logo" />
+          <div class="receipt-brand-text">
+            <h1>${escapeHtml(cfg().businessName)}</h1>
+            <p>${escapeHtml(cfg().businessTagline)}</p>
+          </div>
+        </div>
+        <div class="receipt-number-box">
+          <span class="label">RECIBO DE PAGO</span>
+          <span class="number"># ${escapeHtml(invoice.number.split('-')[1] || invoice.number)}</span>
+          <span class="date">${dayjs(invoice.paid_at).format('DD/MM/YYYY hh:mm A')}</span>
         </div>
       </header>
-      <div class="receipt-meta">
-        <span>Factura <strong>${escapeHtml(invoice.number)}</strong></span>
-        <span>${dayjs(invoice.paid_at).format('DD/MM/YYYY hh:mm A')}</span>
+      
+      <div class="receipt-info-grid">
+        <div class="info-block">
+          <h3>CLIENTE</h3>
+          <strong>${escapeHtml(invoice.client_name)}</strong>
+          ${client?.telefono ? `<p>Tel: ${escapeHtml(client.telefono)}</p>` : ''}
+          ${client?.cedula ? `<p>Cédula: ${escapeHtml(client.cedula)}</p>` : ''}
+        </div>
+        <div class="info-block">
+          <h3>DETALLE DE CUENTA</h3>
+          <p>Cobrador: <strong>${escapeHtml(client?.cobrador || invoice.collector || 'N/A')}</strong></p>
+          <p>Tipo de préstamo: <strong>${client?.tipo === 'redito' ? 'Rédito mensual' : 'San - fijo'}</strong></p>
+        </div>
       </div>
-      <h2>Recibo de Pago</h2>
-      <div class="receipt-client">
-        <span>Cliente</span>
-        <strong>${escapeHtml(invoice.client_name)}</strong>
-      </div>
-      <div class="receipt-money">
-        <div><span>Monto pagado</span><strong>${money(invoice.amount)}</strong></div>
-        <div><span>Balance anterior</span><strong>${money(invoice.previous_balance)}</strong></div>
-        <div><span>Nuevo balance</span><strong>${money(invoice.new_balance)}</strong></div>
-        ${detailsHtml}
-      </div>
-      ${weeksHtml}
-      <footer>${escapeHtml(cfg().receiptFooter)}</footer>
-    </section>
+      
+      <table class="receipt-table">
+        <thead>
+          <tr>
+            <th>Concepto de Pago</th>
+            <th class="text-right">Importe</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.join('')}
+        </tbody>
+      </table>
+      
+      <footer class="receipt-footer">
+        <p>${escapeHtml(cfg().receiptFooter)}</p>
+        <small>Comprobante generado de forma electrónica por SAN PRO. Gracias por su puntualidad.</small>
+      </footer>
+    </div>
   `;
   window.print();
 }
@@ -1406,13 +1402,19 @@ function renderPremiumDashboard() {
     .map(c => ({ client: c, due: nextDueDate(c), status: loanStatus(c) }))
     .sort((a, b) => a.due.valueOf() - b.due.valueOf())
     .slice(0, 6);
-  $('upcoming-list').innerHTML = upcoming.map(item => `
-    <div class="timeline-item">
-      <span class="dot ${attr(item.status.cls)}"></span>
-      <div><strong>${escapeHtml(item.client.nombre)}</strong><small>${escapeHtml(item.client.cobrador)} - ${item.due.format('DD/MM/YYYY')}</small></div>
-      <b>${money(item.client.balance)}</b>
-    </div>
-  `).join('') || '<p class="muted">No hay cobros pendientes.</p>';
+  $('upcoming-list').innerHTML = upcoming.map(item => {
+    const c = item.client;
+    return `
+      <div class="timeline-item upcoming-clickable" data-upcoming-pay="${attr(c.id)}" style="cursor: pointer;">
+        <span class="dot ${attr(item.status.cls)}"></span>
+        <div style="flex: 1;">
+          <strong style="text-decoration: underline; color: var(--accent);">${escapeHtml(c.nombre)}</strong>
+          <small style="display: block;">${escapeHtml(c.cobrador)} · ${item.due.format('DD/MM/YYYY')}</small>
+        </div>
+        <b>${money(c.balance)}</b>
+      </div>
+    `;
+  }).join('') || '<p class="muted">No hay cobros pendientes.</p>';
 }
 
 function renderClients() {
@@ -2241,6 +2243,14 @@ function bindEvents() {
     const mobilePayId = e.target.closest('[data-mobile-pay]')?.dataset.mobilePay;
     if (mobilePayId) {
       const client = state.clients.find(c => c.id === mobilePayId);
+      if (client) {
+        activateTab('payments');
+        selectPaymentClient(client);
+      }
+    }
+    const upcomingPayId = e.target.closest('[data-upcoming-pay]')?.dataset.upcomingPay;
+    if (upcomingPayId) {
+      const client = state.clients.find(c => c.id === upcomingPayId);
       if (client) {
         activateTab('payments');
         selectPaymentClient(client);

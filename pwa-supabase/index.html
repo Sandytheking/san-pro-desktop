@@ -533,20 +533,112 @@
         </article>
         <article class="plan-card featured">
           <span>Pro</span>
-          <h3>RD$999/mes</h3>
+          <h3>RD$500/mes</h3>
           <p>Clientes ilimitados, analiticas, cobradores y recibos premium.</p>
           <button data-select-plan="pro" class="success">Activar Pro</button>
         </article>
         <article class="plan-card">
-          <span>Premium</span>
-          <h3>RD$1,999/mes</h3>
+          <span>Business</span>
+          <h3>RD$1,000/mes</h3>
           <p>Multiusuario, soporte, marca blanca y reportes avanzados.</p>
-          <button data-select-plan="premium">Activar Premium</button>
+          <button data-select-plan="premium">Activar Business</button>
         </article>
       </div>
       <div class="panel current-plan">
         <h3>Licencia actual</h3>
         <div id="plan-status" class="plan-status"></div>
+      </div>
+    </section>
+
+    <!-- More Menu Tab (Mobile Full Navigation) -->
+    <section id="more-menu" class="tab">
+      <div class="section-title">
+        <div>
+          <h2>Menú Principal</h2>
+          <p>Accede a todas las secciones de SAN PRO desde tu móvil.</p>
+        </div>
+      </div>
+      <div class="more-menu-grid">
+        <!-- Operaciones -->
+        <div class="more-menu-card" data-jump-tab="dashboard">
+          <div class="card-icon">🏠</div>
+          <div class="card-text">
+            <strong>Resumen</strong>
+            <span>Vista general del negocio</span>
+          </div>
+        </div>
+        <div class="more-menu-card" data-jump-tab="clients">
+          <div class="card-icon">👥</div>
+          <div class="card-text">
+            <strong>Clientes</strong>
+            <span>Lista y estado de cuentas</span>
+          </div>
+        </div>
+        <div class="more-menu-card" data-jump-tab="new-loan">
+          <div class="card-icon">➕</div>
+          <div class="card-text">
+            <strong>Nuevo Préstamo</strong>
+            <span>Registrar préstamo San o Rédito</span>
+          </div>
+        </div>
+        <div class="more-menu-card" data-jump-tab="payments">
+          <div class="card-icon">💵</div>
+          <div class="card-text">
+            <strong>Cobros</strong>
+            <span>Registrar cuotas y abonos</span>
+          </div>
+        </div>
+        <div class="more-menu-card" data-jump-tab="invoices">
+          <div class="card-icon">📄</div>
+          <div class="card-text">
+            <strong>Facturas</strong>
+            <span>Historial de recibos e impresión</span>
+          </div>
+        </div>
+        <!-- Análisis & Admin Only -->
+        <div class="more-menu-card admin-only" data-jump-tab="analytics">
+          <div class="card-icon">📊</div>
+          <div class="card-text">
+            <strong>Métricas</strong>
+            <span>Estadísticas y reportes prémium</span>
+          </div>
+        </div>
+        <div class="more-menu-card admin-only" data-jump-tab="collectors">
+          <div class="card-icon">🤠</div>
+          <div class="card-text">
+            <strong>Cobradores</strong>
+            <span>Rutas y cobros por cobrador</span>
+          </div>
+        </div>
+        <!-- Configuración & Admin Only -->
+        <div class="more-menu-card admin-only" data-jump-tab="users">
+          <div class="card-icon">👥</div>
+          <div class="card-text">
+            <strong>Usuarios</strong>
+            <span>Acceso y roles de equipo</span>
+          </div>
+        </div>
+        <div class="more-menu-card admin-only" data-jump-tab="settings">
+          <div class="card-icon">⚙️</div>
+          <div class="card-text">
+            <strong>Ajustes</strong>
+            <span>Nombre, WhatsApp y meta mensual</span>
+          </div>
+        </div>
+        <div class="more-menu-card admin-only" data-jump-tab="plans">
+          <div class="card-icon">⭐</div>
+          <div class="card-text">
+            <strong>Planes</strong>
+            <span>Límites y suscripción</span>
+          </div>
+        </div>
+        <div class="more-menu-card admin-only" data-jump-tab="migration">
+          <div class="card-icon">🔄</div>
+          <div class="card-text">
+            <strong>Migración</strong>
+            <span>Copias de seguridad JSON</span>
+          </div>
+        </div>
       </div>
     </section>
     </div> <!-- end .main-content -->
@@ -565,9 +657,9 @@
       <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path><circle cx="9" cy="7" r="4"></circle></svg>
       <span>Clientes</span>
     </button>
-    <button data-mobile-tab="payments">
-      <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-      <span>Más</span>
+    <button data-mobile-tab="more-menu">
+      <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none"><circle cx="12" cy="12" r="1.5"></circle><circle cx="12" cy="5" r="1.5"></circle><circle cx="12" cy="19" r="1.5"></circle></svg>
+      <span>Menú</span>
     </button>
   </nav>
 
