@@ -1,12 +1,12 @@
-const CACHE_NAME = 'sanpro-pwa-v20';
+const CACHE_NAME = 'sanpro-pwa-v21';
 const APP_SHELL = [
   './',
   './index.html',
   './landing.html',
   './manifest.webmanifest',
-  './assets/styles.css?v=20',
+  './assets/styles.css?v=21',
   './assets/landing.css',
-  './assets/app.js?v=20',
+  './assets/app.js?v=21',
   './assets/icon.svg',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
   'https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js'

@@ -1573,36 +1573,49 @@ td.actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
   }
   
   .receipt-table {
-    width: 100%;
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
     border-collapse: collapse;
     margin-bottom: 24px;
+    table-layout: auto;
+  }
+  .receipt-table th,
+  .receipt-table td {
+    min-width: 0 !important;
+    box-sizing: border-box;
   }
   .receipt-table th {
-    border-bottom: 2px solid #e2e8f0;
+    position: static !important;
+    background: #f1f5f9 !important;
+    border-bottom: 2px solid #cbd5e1 !important;
     padding: 8px 12px;
     text-align: left;
     font-size: 11px;
-    color: #64748b;
+    color: #475569 !important;
     text-transform: uppercase;
     font-weight: 700;
   }
   .receipt-table td {
-    border-bottom: 1px solid #f1f5f9;
+    border-bottom: 1px solid #f1f5f9 !important;
     padding: 10px 12px;
     font-size: 13px;
-    color: #334155;
+    color: #334155 !important;
   }
   .receipt-table .text-right {
-    text-align: right;
+    text-align: right !important;
   }
   .receipt-table .highlight-row td {
-    background: #f8fafc;
-    border-top: 1px solid #e2e8f0;
-    border-bottom: 2px solid #cbd5e1;
+    background: #f8fafc !important;
+    border-top: 1px solid #cbd5e1 !important;
+    border-bottom: 2px solid #94a3b8 !important;
+    color: #0f172a !important;
+    font-weight: 700;
   }
   .receipt-table .info-row td {
-    background: #f0fdf4;
-    color: #15803d;
+    background: #f0fdf4 !important;
+    color: #166534 !important;
+    font-weight: 600;
   }
   
   .receipt-footer {
