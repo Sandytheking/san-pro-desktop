@@ -2016,7 +2016,7 @@ function bindEvents() {
     window.open(`https://wa.me/${cfg().developerWhatsApp}?text=${msg}`, '_blank');
   };
 
-  $$('.tabs button').forEach(btn => {
+  $$('.sidebar-nav button').forEach(btn => {
     btn.onclick = () => activateTab(btn.dataset.tab);
   });
   $$('.mobile-nav button').forEach(btn => {
@@ -2050,7 +2050,7 @@ function bindEvents() {
       const c = state.clients.find(x => x.id === id);
       if (c) {
         $('client-modal').classList.add('hidden');
-        $$('.tabs button[data-tab="payments"]')[0].click();
+        $$('.sidebar-nav button[data-tab="payments"]')[0].click();
         selectPaymentClient(c);
         const schedule = c.tipo === 'redito' ? reditoPaymentSummary(c).schedule : c.calendario;
         const week = schedule[Number(idx)];

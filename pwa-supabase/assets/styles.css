@@ -938,24 +938,19 @@ td.actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
   .topbar h1 { font-size: 24px; }
   .top-actions {
     width: 100%;
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    align-items: center;
   }
-  .top-actions > span:first-child,
-  .top-actions > span:nth-child(2),
-  .top-actions > span:nth-child(3) {
-    grid-column: span 1;
-    font-size: 12px;
-  }
-  .top-actions button,
-  .top-actions .button {
-    font-size: 12px;
-    min-height: 38px;
+  .top-actions .sync-pill {
+    margin-right: auto;
   }
   .tabs {
     display: none;
   }
   .mobile-nav {
+    display: flex;
     position: fixed;
     bottom: 0; left: 0; right: 0;
     z-index: 40;
