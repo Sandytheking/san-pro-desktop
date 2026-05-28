@@ -760,19 +760,6 @@ function renderProjection() {
   `).join('');
 }
 
-function renderSmartAlerts() {
-  const alerts = [];
-  const lateClients = state.clients.filter(c => loanStatus(c).text === 'MOROSO');
-  const highBalance = [...state.clients].filter(c => c.balance > 0).sort((a, b) => b.balance - a.balance)[0];
-  const noCollector = state.clients.filter(c => !c.cobrador || c.cobrador === 'N/A').length;
-  if (lateClients.length) alerts.push({ level: 'danger', text: `${lateClients.length} clientes requieren seguimiento por mora.` });
-  if (highBalance) alerts.push({ level: 'warn', text: `${highBalance.nombre} tiene el mayor balance: ${money(highBalance.balance)}.` });
-  if (noCollector) alerts.push({ level: 'warn', text: `${noCollector} clientes no tienen cobrador definido.` });
-  if (!alerts.length) alerts.push({ level: 'ok', text: 'La cartera se ve estable por ahora.' });
-  $('alerts-count').textContent = alerts.length;
-  $('smart-alerts').innerHTML = alerts.map(a => html`<div class="alert ${a.level}">${a.text}</div>`).join('');
-}
-
 function filteredClients() {
   const q = $('search-client').value.trim().toLowerCase();
   const status = $('filter-status').value;
@@ -788,31 +775,6 @@ function filteredClients() {
       (!from || dayjs(c.fechaInicio).isAfter(from) || dayjs(c.fechaInicio).isSame(from, 'day')) &&
       (!to || dayjs(c.fechaInicio).isBefore(to) || dayjs(c.fechaInicio).isSame(to, 'day'));
   });
-}
-
-function renderClients() {
-  const rows = filteredClients();
-  const canDelete = ['owner', 'admin'].includes(state.profile?.role);
-  $('clients-body').innerHTML = rows.map((c, index) => {
-    const st = loanStatus(c);
-    return html`
-      <tr>
-        <td>${index + 1}</td>
-        <td>${c.nombre}</td>
-        <td>${c.tipo === 'redito' ? 'Rédito' : 'San'}</td>
-        <td>${c.telefono || '-'}</td>
-        <td>${c.cedula || '-'}</td>
-        <td>${c.cobrador}</td>
-        <td>${money(c.monto)}</td>
-        <td>${money(c.balance)}</td>
-        <td>${st.next}</td>
-        <td><span class="badge ${st.cls}">${st.text}</span></td>
-        <td class="actions-cell">
-          <button data-view="${c.id}">Ver</button>
-          ${canDelete ? html`<button class="danger" data-delete="${c.id}">Eliminar</button>` : ''}
-        </td>
-      </tr>`;
-  }).join('') || '<tr><td colspan="11">No hay clientes para mostrar.</td></tr>';
 }
 
 function clearClientFilters() {
@@ -857,49 +819,6 @@ function renderCollectors() {
   $('collector-tags').innerHTML = state.collectors.map(c => `
     <span class="tag">${c.name}<button data-remove-collector="${c.id}">x</button></span>
   `).join('');
-}
-
-function renderInvoices() {
-  $('invoices-body').innerHTML = state.invoices.map(i => `
-    <tr>
-      <td>${i.number}</td>
-      <td>${i.client_name}</td>
-      <td>${money(i.amount)}</td>
-      <td>${money(i.new_balance)}</td>
-      <td>${dayjs(i.paid_at).format('DD/MM/YYYY hh:mm A')}</td>
-      <td>
-        <button data-print-invoice="${i.id}">Imprimir</button>
-        <button data-whatsapp-invoice="${i.id}" class="success">WhatsApp</button>
-      </td>
-    </tr>
-  `).join('') || '<tr><td colspan="6">No hay facturas registradas.</td></tr>';
-}
-
-function renderMobileCollector() {
-  if (!$('mobile-client-list')) return;
-  const q = $('mobile-client-search')?.value.trim().toLowerCase() || '';
-  const due = state.clients
-    .filter(c => c.balance > 0)
-    .filter(c => !q || `${c.nombre} ${c.telefono} ${c.cedula}`.toLowerCase().includes(q))
-    .map(c => ({ client: c, due: nextDueDate(c), status: loanStatus(c) }))
-    .sort((a, b) => a.due.valueOf() - b.due.valueOf());
-  const total = due.reduce((sum, item) => sum + item.client.balance, 0);
-  $('mobile-total').textContent = money(total);
-  $('mobile-copy').textContent = `${due.length} clientes con balance pendiente.`;
-  $('mobile-client-list').innerHTML = due.map(item => `
-    <article class="mobile-client-card">
-      <div>
-        <strong>${item.client.nombre}</strong>
-        <span>${item.status.text} - vence ${item.due.format('DD/MM/YYYY')}</span>
-      </div>
-      <b>${money(item.client.balance)}</b>
-      <div class="mobile-card-actions">
-        <button data-mobile-pay="${item.client.id}" class="success">Cobrar</button>
-        <button data-mobile-view="${item.client.id}" class="ghost">Ver</button>
-        ${item.client.telefono ? `<a class="button ghost" href="https://wa.me/${sanitizePhone(item.client.telefono)}" target="_blank" rel="noreferrer">WhatsApp</a>` : ''}
-      </div>
-    </article>
-  `).join('') || '<p class="muted">No hay clientes pendientes en esta ruta.</p>';
 }
 
 async function saveLoan(event) {
@@ -1303,6 +1222,113 @@ function printInvoice(invoice) {
   window.print();
 }
 
+// Dynamic Notification Center Engine
+function updateNotifications() {
+  const notifications = [];
+  const todayStr = dayjs().format('YYYY-MM-DD');
+  
+  // 1. Check late clients (overdue)
+  state.clients.forEach(c => {
+    const st = loanStatus(c);
+    if (st.text === 'MOROSO') {
+      notifications.push({
+        id: `late-${c.id}-${st.next}`,
+        type: 'danger',
+        title: 'Mora Crítica',
+        text: `<strong>${escapeHtml(c.nombre)}</strong> requiere seguimiento urgente. Balance: <strong>${money(c.balance)}</strong>.`,
+        time: 'Cobro vencido',
+        clientId: c.id,
+        action: 'view-client'
+      });
+    }
+  });
+
+  // 2. Check collections due today
+  state.clients.filter(c => c.balance > 0).forEach(c => {
+    const due = nextDueDate(c);
+    if (due.format('YYYY-MM-DD') === todayStr) {
+      const summary = c.tipo === 'redito' ? reditoPaymentSummary(c) : null;
+      let suggested = c.balance;
+      if (c.tipo === 'redito' && summary) {
+        suggested = summary.interestDue > 0 ? summary.interestDue : Math.min(summary.currentDue || c.balance, c.balance);
+      } else {
+        const pending = c.calendario.find(s => Number(s.pagado || 0) < Number(s.cuota || 0));
+        suggested = pending ? Number(pending.cuota) - Number(pending.pagado || 0) : c.balance;
+      }
+      notifications.push({
+        id: `due-today-${c.id}`,
+        type: 'warn',
+        title: 'Cobro para Hoy',
+        text: `Cobro programado hoy para <strong>${escapeHtml(c.nombre)}</strong> por <strong>${money(suggested)}</strong>.`,
+        time: 'Pendiente hoy',
+        clientId: c.id,
+        action: 'pay-client'
+      });
+    }
+  });
+
+  // 3. Check offline queue
+  if (state.offlineQueue && state.offlineQueue.length > 0) {
+    notifications.push({
+      id: 'offline-queue-alert',
+      type: 'info',
+      title: 'Transacciones Offline',
+      text: `Tienes <strong>${state.offlineQueue.length}</strong> pagos guardados en local listos para sincronizar.`,
+      time: 'Pendiente internet',
+      action: 'sync'
+    });
+  }
+
+  // Manage badge count and UI
+  let readIds = [];
+  try {
+    readIds = JSON.parse(localStorage.getItem('sanpro_read_notifications') || '[]');
+  } catch {
+    readIds = [];
+  }
+
+  const unreadNotifications = notifications.filter(n => !readIds.includes(n.id));
+  const badge = $('notif-badge');
+  if (badge) {
+    if (unreadNotifications.length > 0) {
+      badge.textContent = unreadNotifications.length;
+      badge.classList.remove('hidden');
+    } else {
+      badge.classList.add('hidden');
+    }
+  }
+
+  const listElement = $('notifications-list');
+  if (listElement) {
+    if (notifications.length === 0) {
+      listElement.innerHTML = `
+        <div class="notif-empty">
+          <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2.5" fill="none" style="opacity: 0.5; color: var(--accent-2);"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"></path><polyline points="22 4 12 14.01 9 11.01"></polyline></svg>
+          <span><strong>¡Cartera Estable!</strong></span>
+          <span>No hay alertas de mora ni cobros vencidos para hoy.</span>
+        </div>
+      `;
+      return;
+    }
+
+    listElement.innerHTML = notifications.map(n => {
+      const isUnread = !readIds.includes(n.id);
+      return `
+        <div class="notif-item ${isUnread ? 'unread' : ''}" data-notif-id="${attr(n.id)}" data-client-id="${attr(n.clientId || '')}" data-action="${attr(n.action)}">
+          <div class="notif-item-icon ${attr(n.type)}">
+            ${n.type === 'danger' ? '⚠️' : n.type === 'warn' ? '📅' : n.type === 'success' ? '🎉' : '🔄'}
+          </div>
+          <div class="notif-item-content">
+            <span class="notif-item-text">${n.text}</span>
+            <span class="notif-item-time">${escapeHtml(n.time)}</span>
+          </div>
+          <button class="notif-item-dismiss" data-dismiss-id="${attr(n.id)}" title="Marcar como leída">&times;</button>
+        </div>
+      `;
+    }).join('');
+  }
+}
+
 function renderUsers() {
   if (!$('users-body')) return;
   const collectors = [...new Set(state.collectors.map(c => c.name))].filter(Boolean).sort();
@@ -1392,6 +1418,8 @@ function renderPremiumDashboard() {
 function renderClients() {
   const rows = filteredClients();
   const canDelete = ['owner', 'admin'].includes(state.profile?.role);
+  
+  // Desktop Table Render
   $('clients-body').innerHTML = rows.map((c, index) => {
     const st = loanStatus(c);
     return `
@@ -1412,6 +1440,54 @@ function renderClients() {
         </td>
       </tr>`;
   }).join('') || '<tr><td colspan="11">No hay clientes para mostrar.</td></tr>';
+  
+  // Mobile Premium Responsive Cards Render
+  const mobileGrid = $('clients-mobile-grid');
+  if (mobileGrid) {
+    mobileGrid.innerHTML = rows.map((c, index) => {
+      const st = loanStatus(c);
+      const isRedito = c.tipo === 'redito';
+      return `
+        <div class="premium-mobile-card">
+          <div class="card-header-row">
+            <div class="card-header-left">
+              <span class="card-client-name">${escapeHtml(c.nombre)}</span>
+              <div class="card-meta-line">
+                <span>
+                  <svg viewBox="0 0 24 24" width="12" height="12" stroke="currentColor" stroke-width="2.5" fill="none"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
+                  ${escapeHtml(c.cobrador)}
+                </span>
+                <span>·</span>
+                <span>${isRedito ? 'Rédito' : 'San'}</span>
+              </div>
+            </div>
+            <span class="badge ${attr(st.cls)}">${escapeHtml(st.text)}</span>
+          </div>
+          
+          <div class="card-details-grid">
+            <div class="card-detail-item">
+              <label>Prestado</label>
+              <span>${money(c.monto)}</span>
+            </div>
+            <div class="card-detail-item">
+              <label>Balance</label>
+              <span class="highlight-number">${money(c.balance)}</span>
+            </div>
+            <div class="card-detail-item">
+              <label>Vence</label>
+              <span>${escapeHtml(st.next)}</span>
+            </div>
+          </div>
+          
+          <div class="card-actions-row">
+            <button class="ghost" data-view="${attr(c.id)}">Ficha</button>
+            <button class="success" data-mobile-pay="${attr(c.id)}">Cobrar</button>
+            ${canDelete ? `<button class="danger" style="flex: 0 0 42px; width:42px; padding:0; justify-content:center;" data-delete="${attr(c.id)}" title="Eliminar"><svg viewBox="0 0 24 24" width="15" height="15" stroke="currentColor" stroke-width="2.5" fill="none"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg></button>` : ''}
+          </div>
+        </div>
+      `;
+    }).join('') || '<div class="notif-empty"><span>No hay clientes registrados</span></div>';
+  }
 }
 
 function renderClientFilters() {
@@ -1443,6 +1519,7 @@ function renderCollectors() {
 }
 
 function renderInvoices() {
+  // Desktop Table Render
   $('invoices-body').innerHTML = state.invoices.map(i => `
     <tr>
       <td>${escapeHtml(i.number)}</td>
@@ -1456,6 +1533,46 @@ function renderInvoices() {
       </td>
     </tr>
   `).join('') || '<tr><td colspan="6">No hay facturas registradas.</td></tr>';
+  
+  // Mobile Responsive Invoice Cards Render
+  const mobileGrid = $('invoices-mobile-grid');
+  if (mobileGrid) {
+    mobileGrid.innerHTML = state.invoices.map(i => `
+      <div class="premium-mobile-card">
+        <div class="card-header-row">
+          <div class="card-header-left">
+            <span class="card-client-name">${escapeHtml(i.client_name)}</span>
+            <div class="card-meta-line">
+              <span>Recibo: <strong>${escapeHtml(i.number.split('-')[1] || i.number)}</strong></span>
+            </div>
+          </div>
+          <b style="font-size: 16px; color: var(--accent-2); font-family: 'Outfit';">${money(i.amount)}</b>
+        </div>
+        
+        <div class="card-details-grid" style="grid-template-columns: repeat(2, 1fr);">
+          <div class="card-detail-item">
+            <label>Balance Nuevo</label>
+            <span>${money(i.new_balance)}</span>
+          </div>
+          <div class="card-detail-item">
+            <label>Pagado En</label>
+            <span style="font-size: 11px;">${dayjs(i.paid_at).format('DD/MM/YYYY hh:mm A')}</span>
+          </div>
+        </div>
+        
+        <div class="card-actions-row">
+          <button class="ghost" data-print-invoice="${attr(i.id)}">
+            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+            Imprimir
+          </button>
+          <button class="success" data-whatsapp-invoice="${attr(i.id)}">
+            <svg viewBox="0 0 24 24" width="13" height="13" stroke="currentColor" stroke-width="2.5" fill="none"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"></path></svg>
+            WhatsApp
+          </button>
+        </div>
+      </div>
+    `).join('') || '<div class="notif-empty"><span>No hay facturas registradas</span></div>';
+  }
 }
 
 function renderSmartAlerts() {
@@ -1469,6 +1586,9 @@ function renderSmartAlerts() {
   if (!alerts.length) alerts.push({ level: 'ok', text: 'La cartera se ve estable por ahora.' });
   $('alerts-count').textContent = alerts.length;
   $('smart-alerts').innerHTML = alerts.map(a => `<div class="alert ${attr(a.level)}">${escapeHtml(a.text)}</div>`).join('');
+  
+  // Dynamic alerts sync
+  updateNotifications();
 }
 
 function searchPaymentClients() {
@@ -1868,10 +1988,8 @@ function setAuthMode(mode) {
   $('auth-copy').textContent = signup ? 'Crea tu cuenta principal del negocio.' : 'Inicia sesion para sincronizar tu negocio.';
   $('auth-submit').textContent = signup ? 'Crear cuenta' : 'Entrar';
   $('auth-toggle').textContent = signup ? 'Ya tengo cuenta' : 'Crear cuenta nueva';
-  $('auth-name').classList.toggle('hidden', !signup);
-  $('auth-name-label').classList.toggle('hidden', !signup);
-  $('auth-business-code').classList.toggle('hidden', !signup);
-  $('auth-business-code-label').classList.toggle('hidden', !signup);
+  $('auth-name-group')?.classList.toggle('hidden', !signup);
+  $('auth-business-code-group')?.classList.toggle('hidden', !signup);
 }
 
 async function submitAuth() {
@@ -2044,6 +2162,67 @@ function bindEvents() {
   };
   document.body.addEventListener('click', e => {
     if (e.target.matches('[data-close-modal]')) e.target.closest('.modal')?.classList.add('hidden');
+    
+    // Global details view shortcut (works on desktop tables & mobile cards)
+    const viewId = e.target.closest('[data-view]')?.dataset.view;
+    if (viewId) openClient(viewId);
+    
+    // Global delete shortcut (works on desktop tables & mobile cards)
+    const deleteId = e.target.closest('[data-delete]')?.dataset.delete;
+    if (deleteId) deleteClient(deleteId).catch(err => toast(err.message, false));
+
+    // Dynamic Notifications Click Dismissal
+    const dismissId = e.target.closest('[data-dismiss-id]')?.dataset.dismissId;
+    if (dismissId) {
+      e.stopPropagation();
+      let readIds = [];
+      try {
+        readIds = JSON.parse(localStorage.getItem('sanpro_read_notifications') || '[]');
+      } catch {
+        readIds = [];
+      }
+      if (!readIds.includes(dismissId)) {
+        readIds.push(dismissId);
+        localStorage.setItem('sanpro_read_notifications', JSON.stringify(readIds));
+      }
+      updateNotifications();
+      return;
+    }
+
+    // Dynamic Notifications Action Click
+    const notifItem = e.target.closest('[data-notif-id]');
+    if (notifItem && !e.target.matches('.notif-item-dismiss')) {
+      const notifId = notifItem.dataset.notifId;
+      const clientId = notifItem.dataset.clientId;
+      const action = notifItem.dataset.action;
+      
+      let readIds = [];
+      try {
+        readIds = JSON.parse(localStorage.getItem('sanpro_read_notifications') || '[]');
+      } catch {
+        readIds = [];
+      }
+      if (!readIds.includes(notifId)) {
+        readIds.push(notifId);
+        localStorage.setItem('sanpro_read_notifications', JSON.stringify(readIds));
+      }
+      
+      $('notifications-dropdown')?.classList.add('hidden');
+      updateNotifications();
+      
+      if (action === 'view-client' && clientId) {
+        openClient(clientId);
+      } else if (action === 'pay-client' && clientId) {
+        const c = state.clients.find(x => x.id === clientId);
+        if (c) {
+          activateTab('payments');
+          selectPaymentClient(c);
+        }
+      } else if (action === 'sync') {
+        syncOfflineQueue().catch(err => toast(err.message, false));
+      }
+    }
+
     const payWeek = e.target.closest('[data-pay-week]')?.dataset.payWeek;
     if (payWeek) {
       const [id, idx] = payWeek.split(':');
@@ -2128,6 +2307,109 @@ function bindEvents() {
     const selectedPlan = e.target.closest('[data-select-plan]')?.dataset.selectPlan;
     if (selectedPlan) savePlan(selectedPlan).catch(err => toast(err.message, false));
   });
+  // Toggle Notification Dropdown
+  const notifBtn = $('notifications-btn');
+  const notifDropdown = $('notifications-dropdown');
+  if (notifBtn && notifDropdown) {
+    notifBtn.onclick = (e) => {
+      e.stopPropagation();
+      notifDropdown.classList.toggle('hidden');
+    };
+    
+    // Close notifications dropdown when clicking outside
+    document.addEventListener('click', (e) => {
+      if (!notifDropdown.classList.contains('hidden') && !e.target.closest('.notifications-dropdown') && e.target !== notifBtn) {
+        notifDropdown.classList.add('hidden');
+      }
+    });
+  }
+
+  // Clear all notifications action button
+  const clearNotificationsBtn = $('clear-notifications');
+  if (clearNotificationsBtn) {
+    clearNotificationsBtn.onclick = (e) => {
+      e.stopPropagation();
+      const currentNotifs = [];
+      const todayStr = dayjs().format('YYYY-MM-DD');
+      
+      state.clients.forEach(c => {
+        const st = loanStatus(c);
+        if (st.text === 'MOROSO') {
+          currentNotifs.push(`late-${c.id}-${st.next}`);
+        }
+      });
+      state.clients.filter(c => c.balance > 0).forEach(c => {
+        const due = nextDueDate(c);
+        if (due.format('YYYY-MM-DD') === todayStr) {
+          currentNotifs.push(`due-today-${c.id}`);
+        }
+      });
+      if (state.offlineQueue && state.offlineQueue.length > 0) {
+        currentNotifs.push('offline-queue-alert');
+      }
+
+      let readIds = [];
+      try {
+        readIds = JSON.parse(localStorage.getItem('sanpro_read_notifications') || '[]');
+      } catch {
+        readIds = [];
+      }
+      
+      currentNotifs.forEach(id => {
+        if (!readIds.includes(id)) readIds.push(id);
+      });
+      
+      localStorage.setItem('sanpro_read_notifications', JSON.stringify(readIds));
+      updateNotifications();
+      toast('Notificaciones marcadas como leídas');
+    };
+  }
+
+  // Mobile Action FAB Menu Expansion
+  const fabMain = $('mobile-fab-main');
+  const fabContainer = $('mobile-fab-container');
+  if (fabMain && fabContainer) {
+    fabMain.onclick = (e) => {
+      e.stopPropagation();
+      fabContainer.classList.toggle('active');
+    };
+    
+    // Close FAB menu when clicking outside
+    document.addEventListener('click', (e) => {
+      if (fabContainer.classList.contains('active') && !e.target.closest('#mobile-fab-container')) {
+        fabContainer.classList.remove('active');
+      }
+    });
+  }
+
+  // Mobile FAB Actions REDIRECTS
+  const fabActionLoan = $('fab-action-loan');
+  if (fabActionLoan) {
+    fabActionLoan.onclick = () => {
+      fabContainer?.classList.remove('active');
+      activateTab('new-loan');
+    };
+  }
+
+  const fabActionPay = $('fab-action-pay');
+  if (fabActionPay) {
+    fabActionPay.onclick = () => {
+      fabContainer?.classList.remove('active');
+      activateTab('payments');
+    };
+  }
+
+  const fabActionSearch = $('fab-action-search');
+  if (fabActionSearch) {
+    fabActionSearch.onclick = () => {
+      fabContainer?.classList.remove('active');
+      activateTab('clients');
+      setTimeout(() => {
+        $('search-client')?.focus();
+      }, 100);
+    };
+  }
+
   window.addEventListener('online', () => syncOfflineQueue().catch(err => toast(err.message, false)));
   window.addEventListener('offline', () => setSyncStatus('Offline', false));
 }

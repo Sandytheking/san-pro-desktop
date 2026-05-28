@@ -2,9 +2,12 @@
 <html lang="es">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <meta name="theme-color" content="#0f172a" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <meta name="theme-color" content="#030712" />
   <title>SAN PRO PWA</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="manifest" href="./manifest.webmanifest" />
   <link rel="icon" type="image/x-icon" href="./public/favicon.ico" />
   <link rel="icon" type="image/png" sizes="96x96" href="./public/icon-96x96.png" />
@@ -23,10 +26,14 @@
     <div class="auth-card">
       <h1>SAN PRO</h1>
       <p>Conecta tu proyecto de Supabase para iniciar la version PWA.</p>
-      <label>Supabase URL</label>
-      <input id="setup-url" placeholder="https://xxxxx.supabase.co" />
-      <label>Anon Key</label>
-      <textarea id="setup-key" rows="4" placeholder="eyJhbGciOi..."></textarea>
+      <div class="field-group">
+        <label>Supabase URL</label>
+        <input id="setup-url" placeholder="https://xxxxx.supabase.co" />
+      </div>
+      <div class="field-group">
+        <label>Anon Key</label>
+        <textarea id="setup-key" rows="2" style="resize: none;" placeholder="eyJhbGciOi..."></textarea>
+      </div>
       <button id="save-config">Guardar configuracion</button>
       <small>Tambien puedes copiar `config.example.js` como `config.js` y colocar tus datos ahi.</small>
     </div>
@@ -58,14 +65,22 @@
     <div class="auth-card">
       <h1>SAN PRO Cloud</h1>
       <p id="auth-copy">Inicia sesion para sincronizar tu negocio.</p>
-      <label>Correo</label>
-      <input id="auth-email" type="email" autocomplete="email" placeholder="tu@email.com" />
-      <label>Contrasena</label>
-      <input id="auth-password" type="password" autocomplete="current-password" placeholder="Minimo 6 caracteres" />
-      <label id="auth-name-label" class="hidden">Nombre</label>
-      <input id="auth-name" class="hidden" autocomplete="name" placeholder="Tu nombre" />
-      <label id="auth-business-code-label" class="hidden">Codigo de negocio</label>
-      <input id="auth-business-code" class="hidden" autocomplete="off" placeholder="Opcional para tu equipo" />
+      <div class="field-group">
+        <label>Correo</label>
+        <input id="auth-email" type="email" autocomplete="email" placeholder="tu@email.com" />
+      </div>
+      <div class="field-group">
+        <label>Contrasena</label>
+        <input id="auth-password" type="password" autocomplete="current-password" placeholder="Minimo 6 caracteres" />
+      </div>
+      <div id="auth-name-group" class="field-group hidden">
+        <label id="auth-name-label">Nombre</label>
+        <input id="auth-name" autocomplete="name" placeholder="Tu nombre" />
+      </div>
+      <div id="auth-business-code-group" class="field-group hidden">
+        <label id="auth-business-code-label">Codigo de negocio</label>
+        <input id="auth-business-code" autocomplete="off" placeholder="Opcional para tu equipo" />
+      </div>
       <button id="auth-submit">Entrar</button>
       <div class="auth-actions" style="display: flex; gap: 8px; flex-direction: column;">
         <button id="auth-forgot-password" class="ghost" style="margin: 0; padding: 4px;">Olvide mi contrasena</button>
@@ -79,14 +94,18 @@
     <div class="auth-card wide">
       <h1>Activacion de Licencia</h1>
       <p>El periodo de prueba termino. Envia tu ID al desarrollador para activar el sistema.</p>
-      <label>Tu ID unico</label>
-      <div class="inline-control">
-        <code id="installation-id"></code>
-        <button id="copy-installation">Copiar</button>
+      <div class="field-group">
+        <label>Tu ID unico</label>
+        <div class="inline-control">
+          <code id="installation-id"></code>
+          <button id="copy-installation">Copiar</button>
+        </div>
       </div>
       <button id="send-license-whatsapp" class="success">Enviar por WhatsApp</button>
-      <label>Clave de licencia</label>
-      <input id="license-key" placeholder="SANPRO2026-2027-01-19-xxxxxxxx" />
+      <div class="field-group">
+        <label>Clave de licencia</label>
+        <input id="license-key" placeholder="SANPRO2026-2027-01-19-xxxxxxxx" />
+      </div>
       <button id="activate-license">Activar licencia</button>
     </div>
   </section>
@@ -167,10 +186,24 @@
         <div class="top-actions">
           <span id="sync-status" class="sync-pill">Listo</span>
           <button id="show-installation" class="ghost hidden-mobile">ID licencia</button>
-          <button class="icon-btn" id="notifications-btn">
-             <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
-             <span class="notif-badge">3</span>
-          </button>
+          <div style="position: relative; display: inline-block;">
+            <button class="icon-btn" id="notifications-btn">
+               <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+               <span class="notif-badge hidden" id="notif-badge">0</span>
+            </button>
+            <div class="notifications-dropdown hidden" id="notifications-dropdown">
+              <div class="notif-header">
+                <h3>Notificaciones</h3>
+                <button class="ghost" id="clear-notifications">Limpiar todo</button>
+              </div>
+              <div class="notif-list" id="notifications-list">
+                <div class="notif-empty">
+                  <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2" fill="none" style="opacity: 0.5;"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"></path><path d="M13.73 21a2 2 0 0 1-3.46 0"></path></svg>
+                  <span>No tienes notificaciones pendientes</span>
+                </div>
+              </div>
+            </div>
+          </div>
           <button id="logout" class="icon-btn" title="Cerrar sesion">
             <svg viewBox="0 0 24 24" width="20" height="20" stroke="currentColor" stroke-width="2" fill="none"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
           </button>
@@ -261,6 +294,9 @@
           <tbody id="clients-body"></tbody>
         </table>
       </div>
+      <div class="mobile-client-cards-grid" id="clients-mobile-grid">
+        <!-- Tarjetas dinámicas en móviles -->
+      </div>
     </section>
 
     <section id="new-loan" class="tab">
@@ -323,6 +359,9 @@
           <thead><tr><th>Numero</th><th>Cliente</th><th>Monto</th><th>Balance nuevo</th><th>Fecha</th><th></th></tr></thead>
           <tbody id="invoices-body"></tbody>
         </table>
+      </div>
+      <div class="mobile-invoice-cards-grid" id="invoices-mobile-grid">
+        <!-- Facturas dinámicas en móviles -->
       </div>
     </section>
 
@@ -531,6 +570,33 @@
       <span>Más</span>
     </button>
   </nav>
+
+  <!-- FAB Quick Actions for Mobile -->
+  <div class="fab-container" id="mobile-fab-container">
+    <button class="fab-main" id="mobile-fab-main" title="Acciones rápidas">
+      <svg viewBox="0 0 24 24" width="24" height="24" stroke="currentColor" stroke-width="2.5" fill="none"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+    </button>
+    <div class="fab-menu">
+      <div class="fab-item" id="fab-action-loan">
+        <span class="fab-label">Nuevo préstamo</span>
+        <button class="fab-btn">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="12" y1="18" x2="12" y2="12"></line><line x1="9" y1="15" x2="15" y2="15"></line></svg>
+        </button>
+      </div>
+      <div class="fab-item" id="fab-action-pay">
+        <span class="fab-label">Registrar cobro</span>
+        <button class="fab-btn">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+        </button>
+      </div>
+      <div class="fab-item" id="fab-action-search">
+        <span class="fab-label">Buscar cliente</span>
+        <button class="fab-btn">
+          <svg viewBox="0 0 24 24" width="18" height="18" stroke="currentColor" stroke-width="2.5" fill="none"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+        </button>
+      </div>
+    </div>
+  </div>
 
   <div id="client-modal" class="modal hidden">
     <div class="modal-card large">

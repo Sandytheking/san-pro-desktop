@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sanpro-pwa-v17';
+const CACHE_NAME = 'sanpro-pwa-v19';
 const APP_SHELL = [
   './',
   './index.html',
