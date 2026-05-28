@@ -259,8 +259,8 @@ async function saveSettings() {
 
 function applySettings() {
   const current = cfg();
-  $('brand-title').textContent = current.businessName;
-  $('brand-subtitle').textContent = current.businessTagline;
+  if ($('brand-title')) $('brand-title').textContent = current.businessName;
+  if ($('brand-subtitle')) $('brand-subtitle').textContent = current.businessTagline;
   $('paypal-link').href = current.paypalUrl;
   $('bank-account').textContent = current.bankAccount;
   $('setting-business-name').value = current.businessName;
@@ -506,7 +506,7 @@ async function loadAll() {
 }
 
 function renderAll() {
-  $('current-date').textContent = dayjs().format('DD/MM/YYYY');
+  if ($('current-date')) $('current-date').textContent = dayjs().format('DD/MM/YYYY');
   renderStats();
   renderCollectors();
   renderClientFilters();
