@@ -4,9 +4,9 @@ const APP_SHELL = [
   './index.html',
   './landing.html',
   './manifest.webmanifest',
-  './assets/styles.css',
+  './assets/styles.css?v=20',
   './assets/landing.css',
-  './assets/app.js',
+  './assets/app.js?v=20',
   './assets/icon.svg',
   'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2',
   'https://cdnjs.cloudflare.com/ajax/libs/dayjs/1.11.10/dayjs.min.js'
