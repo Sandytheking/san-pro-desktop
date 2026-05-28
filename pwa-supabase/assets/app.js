@@ -84,7 +84,7 @@ function showScreen(id) {
 
 function activateTab(tabId) {
   const targetTab = canUseTab(tabId) ? tabId : 'collector-mobile';
-  $$('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === targetTab));
+  $$('.sidebar-nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === targetTab));
   $$('.mobile-nav button').forEach(b => b.classList.toggle('active', b.dataset.mobileTab === targetTab));
   $$('.tab').forEach(t => t.classList.toggle('active', t.id === targetTab));
 }
@@ -2086,22 +2086,22 @@ function bindEvents() {
   $('collector-name').addEventListener('keydown', e => {
     if (e.key === 'Enter') addCollector(e.target.value).catch(err => toast(err.message, false));
   });
-  $('admin-add-collector').onclick = () => addCollector($('admin-collector-name').value).then(() => {
+  if ($('admin-add-collector')) $('admin-add-collector').onclick = () => addCollector($('admin-collector-name').value).then(() => {
     $('admin-collector-name').value = '';
   }).catch(err => toast(err.message, false));
-  $('export-backup').onclick = exportBackup;
-  $('import-backup').onchange = e => importBackup(e.target.files[0]).catch(err => toast(err.message, false));
-  $('migration-file').onchange = e => importMigration(e.target.files[0]).catch(err => toast(err.message, false));
-  $('show-installation').onclick = async () => {
+  if ($('export-backup')) $('export-backup').onclick = exportBackup;
+  if ($('import-backup')) $('import-backup').onchange = e => importBackup(e.target.files[0]).catch(err => toast(err.message, false));
+  if ($('migration-file')) $('migration-file').onchange = e => importMigration(e.target.files[0]).catch(err => toast(err.message, false));
+  if ($('show-installation')) $('show-installation').onclick = async () => {
     await navigator.clipboard.writeText(getInstallationId());
     alert(`Tu ID unico de licencia es:\n\n${getInstallationId()}\n\nYa fue copiado al portapapeles.`);
   };
-  $('open-donation').onclick = () => $('donation-modal').classList.remove('hidden');
-  $('copy-bank').onclick = async () => {
+  if ($('open-donation')) $('open-donation').onclick = () => $('donation-modal').classList.remove('hidden');
+  if ($('copy-bank')) $('copy-bank').onclick = async () => {
     await navigator.clipboard.writeText(cfg().bankAccount);
     toast('Cuenta copiada');
   };
-  $('logout').onclick = async () => {
+  if ($('logout')) $('logout').onclick = async () => {
     await state.supabase.auth.signOut();
     state.user = null;
     state.profile = null;
