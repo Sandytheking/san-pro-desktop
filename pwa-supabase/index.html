@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <meta name="theme-color" content="#030712" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="SAN PRO" />
   <title>SAN PRO PWA</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -310,10 +313,10 @@
         <input id="loan-phone" placeholder="Telefono WhatsApp" autocomplete="off" />
         <input id="loan-document" placeholder="Cedula (opcional)" autocomplete="off" />
         <select id="loan-collector" required></select>
-        <input id="loan-amount" required type="number" min="0" step="0.01" placeholder="Monto prestado" />
-        <input id="loan-interest" required type="number" min="0" step="0.01" value="30" placeholder="Interes %" />
-        <input id="loan-weeks" required type="number" min="1" value="13" placeholder="Semanas / meses" />
-        <input id="loan-fee" type="number" min="0" step="0.01" value="0" placeholder="Cargo contrato" />
+        <input id="loan-amount" required type="number" min="0" step="0.01" inputmode="decimal" autocomplete="off" placeholder="Monto prestado" />
+        <input id="loan-interest" required type="number" min="0" step="0.01" value="30" inputmode="decimal" autocomplete="off" placeholder="Interes %" />
+        <input id="loan-weeks" required type="number" min="1" value="13" inputmode="numeric" autocomplete="off" placeholder="Semanas / meses" />
+        <input id="loan-fee" type="number" min="0" step="0.01" value="0" inputmode="decimal" autocomplete="off" placeholder="Cargo contrato" />
         <input id="loan-date" type="date" required />
       </form>
       <div class="stats compact">
@@ -333,7 +336,7 @@
           <input id="payment-search" placeholder="Buscar cliente por nombre" autocomplete="off" />
           <div id="payment-results" class="results hidden"></div>
         </div>
-        <input id="payment-amount" type="number" min="0" step="0.01" placeholder="Monto pagado" />
+        <input id="payment-amount" type="number" min="0" step="0.01" inputmode="decimal" autocomplete="off" placeholder="Monto pagado" />
         <div id="payment-info"></div>
         <button id="register-payment">Registrar pago</button>
       </div>
@@ -426,11 +429,11 @@
         <article class="panel">
           <h3>Metas</h3>
           <label>Meta mensual de cobros</label>
-          <input id="setting-monthly-goal" type="number" min="0" step="0.01" placeholder="0.00" />
+          <input id="setting-monthly-goal" type="number" min="0" step="0.01" inputmode="decimal" autocomplete="off" placeholder="0.00" />
           <label>Interes por defecto (%)</label>
-          <input id="setting-default-interest" type="number" min="0" step="0.01" placeholder="30" />
+          <input id="setting-default-interest" type="number" min="0" step="0.01" inputmode="decimal" autocomplete="off" placeholder="30" />
           <label>Plazo por defecto</label>
-          <input id="setting-default-weeks" type="number" min="1" placeholder="13" />
+          <input id="setting-default-weeks" type="number" min="1" inputmode="numeric" autocomplete="off" placeholder="13" />
         </article>
         <article class="panel">
           <h3>Recibos</h3>
@@ -692,6 +695,7 @@
 
   <div id="client-modal" class="modal hidden">
     <div class="modal-card large">
+      <div class="drag-handle"></div>
       <button class="close" data-close-modal>&times;</button>
       <h2 id="modal-title"></h2>
       <div id="schedule-grid" class="schedule-grid"></div>
@@ -702,6 +706,7 @@
 
   <div id="donation-modal" class="modal hidden">
     <div class="modal-card">
+      <div class="drag-handle"></div>
       <button class="close" data-close-modal>&times;</button>
       <h2>Apoya SAN PRO</h2>
       <p>Si el sistema te ayuda en tu trabajo diario, puedes apoyar su desarrollo.</p>

@@ -594,8 +594,24 @@ small {
   border-bottom-color: var(--accent);
 }
 
-.tab { display: none; }
-.tab.active { display: block; }
+.tab {
+  display: none;
+}
+.tab.active {
+  display: block;
+  animation: tabFadeIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes tabFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
 .tab h2 { margin-top: 0; }
 
 body[data-role="collector"] .sidebar-nav button {
@@ -1132,6 +1148,10 @@ td.actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
 }
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(99, 102, 241, 0.4);
+}
+
+.drag-handle {
+  display: none;
 }
 
 .modal {
@@ -1677,7 +1697,7 @@ td.actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
   button, .button { min-height: 42px; padding: 8px 12px; }
   input, select, textarea { min-height: 44px; font-size: 15px; padding: 10px 12px; }
   .main-content {
-    padding: 10px 10px 92px;
+    padding: 10px 10px calc(92px + env(safe-area-inset-bottom, 0px));
     width: 100%;
   }
   .auth-card {
@@ -1699,7 +1719,7 @@ td.actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
     backdrop-filter: blur(14px);
     -webkit-backdrop-filter: blur(14px);
     margin: -10px -10px 16px;
-    padding: 12px 14px;
+    padding: calc(12px + env(safe-area-inset-top, 0px)) 14px 12px;
     border-bottom: 1px solid rgba(255, 255, 255, 0.08);
     flex-direction: row;
     justify-content: space-between;
@@ -1725,17 +1745,17 @@ td.actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
   .mobile-nav {
     display: flex;
     position: fixed;
-    bottom: 14px; 
+    bottom: calc(14px + env(safe-area-inset-bottom, 0px)); 
     left: 14px; 
     right: 14px;
     z-index: 1400;
-    background: rgba(11, 15, 26, 0.82);
-    backdrop-filter: blur(16px);
-    -webkit-backdrop-filter: blur(16px);
-    border: 1px solid rgba(255, 255, 255, 0.08);
+    background: rgba(11, 15, 26, 0.75);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(255, 255, 255, 0.06);
     border-radius: 16px;
     padding: 6px 8px;
-    box-shadow: 0 10px 30px rgba(0,0,0,0.5), 0 0 1px rgba(255,255,255,0.1) inset;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
     gap: 4px;
   }
   .mobile-nav button {
@@ -1830,7 +1850,15 @@ td.actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
     padding: 22px 16px;
     margin-bottom: 0;
     border-bottom: none;
-    animation: slideUpModal 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: slideUpModal 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .drag-handle {
+    display: block;
+    width: 40px;
+    height: 4px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 99px;
+    margin: -8px auto 16px auto;
   }
   @keyframes slideUpModal {
     from { transform: translateY(100%); }
@@ -1847,20 +1875,20 @@ td.actions-cell { display: flex; gap: 8px; flex-wrap: wrap; }
   
   /* Positioning Adjustments for Floating elements */
   .fab-container {
-    bottom: 88px;
+    bottom: calc(88px + env(safe-area-inset-bottom, 0px));
     right: 16px;
   }
   .toast {
-    top: auto;
-    bottom: 94px;
+    top: calc(16px + env(safe-area-inset-top, 0px));
+    bottom: auto;
     left: 16px;
     right: 16px;
     width: auto;
     justify-content: center;
-    animation: slideInBottom 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    animation: slideInTop 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
   }
-  @keyframes slideInBottom {
-    from { transform: translateY(150%); opacity: 0; }
+  @keyframes slideInTop {
+    from { transform: translateY(-150%); opacity: 0; }
     to { transform: translateY(0); opacity: 1; }
   }
   

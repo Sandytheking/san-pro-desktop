@@ -55,6 +55,13 @@ const teamOwnerId = () => state.profile?.business_owner_id || state.profile?.id 
 const offlineQueueKey = () => `sanpro_offline_queue:${teamOwnerId() || 'local'}`;
 const collectorTabs = ['dashboard', 'clients', 'payments', 'invoices', 'collector-mobile', 'more-menu'];
 
+const haptic = {
+  light: () => navigator.vibrate && navigator.vibrate(10),
+  medium: () => navigator.vibrate && navigator.vibrate(22),
+  success: () => navigator.vibrate && navigator.vibrate([15, 30, 15]),
+  error: () => navigator.vibrate && navigator.vibrate([40, 50, 40])
+};
+
 function canUseTab(tabId) {
   if (state.profile?.role !== 'collector') return true;
   if (tabId === 'new-loan') return Boolean(state.profile.collector_name);
@@ -66,6 +73,11 @@ function toast(message, ok = true) {
   t.textContent = message;
   t.className = `toast ${ok ? '' : 'error'}`;
   t.classList.remove('hidden');
+  if (ok) {
+    haptic.light();
+  } else {
+    haptic.error();
+  }
   setTimeout(() => t.classList.add('hidden'), 3200);
 }
 
@@ -84,6 +96,10 @@ function showScreen(id) {
 
 function activateTab(tabId) {
   const targetTab = canUseTab(tabId) ? tabId : 'collector-mobile';
+  const currentActive = $$('.tab.active')[0];
+  if (currentActive && currentActive.id !== targetTab) {
+    haptic.light();
+  }
   $$('.sidebar-nav button').forEach(b => b.classList.toggle('active', b.dataset.tab === targetTab));
   $$('.mobile-nav button').forEach(b => b.classList.toggle('active', b.dataset.mobileTab === targetTab));
   $$('.tab').forEach(t => t.classList.toggle('active', t.id === targetTab));
@@ -819,6 +835,7 @@ async function saveLoan(event) {
   clearClientFilters();
   renderClients();
   activateTab('clients');
+  haptic.success();
   toast('Prestamo guardado');
 }
 
@@ -833,6 +850,7 @@ async function deleteClient(id) {
 function openClient(id) {
   const c = state.clients.find(x => x.id === id);
   if (!c) return;
+  haptic.light();
   $('modal-title').textContent = `${c.nombre}${c.cedula ? ' - ' + c.cedula : ''}`;
   const redSummary = c.tipo === 'redito' ? reditoPaymentSummary(c) : null;
   const displaySchedule = redSummary?.schedule || c.calendario;
@@ -1060,6 +1078,7 @@ async function applyPayment(c, amount, queuedAt = null) {
   $('payment-amount').value = '';
   $('payment-info').textContent = '';
   showWhatsappReceipt({ ...c, balance: newBalance, calendario: schedule }, state.lastInvoice);
+  haptic.success();
   toast('Pago registrado y factura generada');
 }
 
@@ -1608,6 +1627,7 @@ function searchPaymentClients() {
 function openClient(id) {
   const c = state.clients.find(x => x.id === id);
   if (!c) return;
+  haptic.light();
   $('modal-title').textContent = `${c.nombre}${c.cedula ? ' - ' + c.cedula : ''}`;
   const redSummary = c.tipo === 'redito' ? reditoPaymentSummary(c) : null;
   const displaySchedule = redSummary?.schedule || c.calendario;
